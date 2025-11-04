@@ -14,6 +14,27 @@ import hashlib
 import subprocess
 import webbrowser
 
+# Определяем, запущены ли мы как EXE
+def is_frozen():
+    return getattr(sys, 'frozen', False)
+
+def get_base_path():
+    """Возвращает правильный путь в зависимости от режима (EXE или скрипт)"""
+    if is_frozen():
+        return os.path.dirname(sys.executable)
+    else:
+        return os.path.dirname(os.path.abspath(__file__))
+
+def get_resource_path(relative_path):
+    """Получает абсолютный путь к ресурсу, работает для dev и для PyInstaller"""
+    try:
+        # PyInstaller создает временную папку и хранит путь в _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = get_base_path()
+    
+    return os.path.join(base_path, relative_path)
+
 class SimpleSummarizer:
     """Упрощенный AI-агент для пересказа новостей"""
     
@@ -97,8 +118,11 @@ class SimpleSummarizer:
         return ' '.join(words[:8]) + '...'
 
 class NewsCollector:
-    def __init__(self, config_file="sources.json"):
-        self.config_file = config_file
+    def __init__(self, config_file=None):
+        if config_file is None:
+            self.config_file = os.path.join(get_base_path(), "sources.json")
+        else:
+            self.config_file = config_file
         self.sources = self.load_sources()
         self.summarizer = SimpleSummarizer()
         
@@ -108,13 +132,20 @@ class NewsCollector:
             with open(self.config_file, 'r', encoding='utf-8') as f:
                 return json.load(f)
         except FileNotFoundError:
+            print(f"ℹ️ Файл конфигурации {self.config_file} не найден, создан новый")
+            return {"sources": {}}
+        except Exception as e:
+            print(f"❌ Ошибка загрузки конфигурации: {e}")
             return {"sources": {}}
     
     def save_sources(self):
         """Сохранение конфигурации источников в JSON файл"""
-        os.makedirs(os.path.dirname(self.config_file) if os.path.dirname(self.config_file) else '.', exist_ok=True)
-        with open(self.config_file, 'w', encoding='utf-8') as f:
-            json.dump(self.sources, f, ensure_ascii=False, indent=2)
+        try:
+            os.makedirs(os.path.dirname(self.config_file) if os.path.dirname(self.config_file) else '.', exist_ok=True)
+            with open(self.config_file, 'w', encoding='utf-8') as f:
+                json.dump(self.sources, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"❌ Ошибка сохранения конфигурации: {e}")
     
     def add_source(self, name, url, max_news=5):
         """Добавление нового источника новостей"""
@@ -565,11 +596,14 @@ class NewsExporter:
         if not filename:
             if is_scheduled:
                 # В автоматическом режиме используем фиксированное имя
-                filename = "news_call.txt"
+                filename = os.path.join(get_base_path(), "news_call.txt")
             else:
                 # В ручном режиме используем timestamp
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename = f"news_ticker_{timestamp}.txt"
+                filename = os.path.join(get_base_path(), f"news_ticker_{timestamp}.txt")
+        else:
+            # Если указано имя файла, используем базовый путь
+            filename = os.path.join(get_base_path(), filename)
         
         try:
             # Группируем новости по источникам
@@ -632,7 +666,8 @@ class NewsApp:
         print("=" * 70)
         print("           🎯 СИСТЕМА СБОРА НОВОСТЕЙ - WINDOWS ПРИЛОЖЕНИЕ")
         print("=" * 70)
-        print("🤖 УПРОЩЕННЫЙ AI ДЛЯ ПЕРЕСКАЗА НОВОСТЕЙ")
+        mode = "EXE" if is_frozen() else "Python"
+        print(f"🤖 РЕЖИМ: {mode} | УПРОЩЕННЫЙ AI ДЛЯ ПЕРЕСКАЗА НОВОСТЕЙ")
         print("📝 ФОРМАТ: КАЖДАЯ НОВОСТЬ - ОДНА СТРОКА ДО 200 СИМВОЛОВ")
         print("📰 ГРУППИРОВКА ПО ИСТОЧНИКАМ С НАЗВАНИЯМИ")
         print("🚫 БЕЗ ЗАВИСИМОСТИ ОТ ВНЕШНИХ API")
@@ -776,7 +811,7 @@ class NewsApp:
             is_scheduled=False
         )
         if result_file:
-            print(f"📁 Файл сохранен: {os.path.abspath(result_file)}")
+            print(f"📁 Файл сохранен: {result_file}")
         
         self.wait_for_enter()
     
@@ -837,7 +872,7 @@ class NewsApp:
         self.wait_for_enter()
     
     def scheduled_task(self):
-        """Задача для выполнения по расписанию"""
+        """Задача для выполнения по расписания"""
         print(f"\n⏰ [Расписание] Автоматический сбор новостей в {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         try:
             news = self.collector.collect_news()
@@ -850,7 +885,7 @@ class NewsApp:
                     is_scheduled=True
                 )
                 if result_file:
-                    print(f"📁 Файл обновлен: {os.path.abspath(result_file)}")
+                    print(f"📁 Файл обновлен: {result_file}")
             else:
                 print("ℹ️  Новости не найдены в запланированном сборе")
         except Exception as e:
@@ -911,45 +946,23 @@ class NewsApp:
         self.collector.list_sources()
         self.wait_for_enter()
     
-    def open_web_ui(self):
-        """Запуск Web UI"""
-        self.print_header()
-        print("--- ЗАПУСК WEB ИНТЕРФЕЙСА ---")
-        
-        try:
-            # Проверяем наличие web_ui.py
-            if os.path.exists("web_ui.py"):
-                print("🚀 Запуск Web UI...")
-                # Запускаем в отдельном процессе
-                subprocess.Popen([sys.executable, "web_ui.py"])
-                print("✅ Web UI запускается в фоновом режиме")
-                print("📧 Открытие браузера...")
-                time.sleep(2)
-                webbrowser.open("http://localhost:5000")
-                print("🌐 Web UI доступен по адресу: http://localhost:5000")
-            else:
-                print("❌ Файл web_ui.py не найден!")
-                print("💡 Убедитесь, что файл находится в той же папке")
-        except Exception as e:
-            print(f"❌ Ошибка при запуске Web UI: {e}")
-        
-        self.wait_for_enter()
-    
     def show_system_info(self):
         """Показать системную информацию"""
         self.print_header()
         print("--- СИСТЕМНАЯ ИНФОРМАЦИЯ ---")
         
-        print(f"📁 Текущая папка: {os.getcwd()}")
+        print(f"📁 Текущая папка: {get_base_path()}")
         print(f"🐍 Версия Python: {sys.version.split()[0]}")
+        print(f"📦 Режим: {'EXE' if is_frozen() else 'Python Script'}")
         print(f"📰 Количество источников: {len(self.collector.sources['sources'])}")
         print(f"⏰ Планировщик: {'✅ Активен' if self.scheduler_running else '❌ Остановлен'}")
         
         # Проверяем наличие файлов
         files_to_check = ["sources.json", "news_call.txt"]
         for file in files_to_check:
-            if os.path.exists(file):
-                size = os.path.getsize(file)
+            file_path = os.path.join(get_base_path(), file)
+            if os.path.exists(file_path):
+                size = os.path.getsize(file_path)
                 print(f"📄 {file}: {size} байт")
             else:
                 print(f"📄 {file}: ❌ Не найден")
@@ -971,12 +984,11 @@ class NewsApp:
             print("7. 🔄 Запустить фоновый планировщик")
             print("8. ⏹️  Остановить планировщик")
             print("9. 🚀 Быстрый старт (добавить примеры источников)")
-            print("10. 🌐 Запуск Web UI")
-            print("11. ℹ️  Системная информация")
+            print("10. ℹ️  Системная информация")
             print("0. 🚪 Выход")
             print("-" * 70)
             
-            choice = input("Выберите действие (0-11): ").strip()
+            choice = input("Выберите действие (0-10): ").strip()
             
             if choice == "1":
                 self.print_header()
@@ -1000,8 +1012,6 @@ class NewsApp:
             elif choice == "9":
                 self.quick_start()
             elif choice == "10":
-                self.open_web_ui()
-            elif choice == "11":
                 self.show_system_info()
             elif choice == "0":
                 self.stop_scheduler()
@@ -1014,7 +1024,7 @@ class NewsApp:
 def main():
     """Основная функция запуска приложения"""
     print("🚀 Загрузка News Collector System...")
-    print("💡 Создание Windows приложения...")
+    print("💡 Самодостаточное Windows приложение...")
     time.sleep(1)
     
     app = NewsApp()
