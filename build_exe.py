@@ -27,8 +27,7 @@ def install_dependencies():
         "requests==2.31.0",
         "beautifulsoup4==4.12.2", 
         "schedule==1.2.0",
-        "lxml==4.9.3",
-        "pyinstaller==5.13.0"
+        "lxml==4.9.3"
     ]
     
     for dep in dependencies:
@@ -45,53 +44,14 @@ def create_spec_file():
     """Создание spec файла для PyInstaller с настройкой onefile"""
     spec_content = '''# -*- mode: python ; coding: utf-8 -*-
 
-import sys
-from PyInstaller.utils.hooks import collect_all
-
 block_cipher = None
-
-# Собираем все зависимости
-datas = []
-hiddenimports = []
-
-# Для requests
-try:
-    datas += collect_all('requests')[0]
-    hiddenimports += collect_all('requests')[1]
-except:
-    pass
-
-# Для beautifulsoup4
-try:
-    datas += collect_all('beautifulsoup4')[0] 
-    hiddenimports += collect_all('beautifulsoup4')[1]
-except:
-    pass
-
-# Для schedule
-try:
-    datas += collect_all('schedule')[0]
-    hiddenimports += collect_all('schedule')[1]
-except:
-    pass
-
-# Для lxml
-try:
-    datas += collect_all('lxml')[0]
-    hiddenimports += collect_all('lxml')[1]
-except:
-    pass
-
-# Убираем дубликаты
-datas = list(set(datas))
-hiddenimports = list(set(hiddenimports))
 
 a = Analysis(
     ['news_collector.py'],
     pathex=[],
     binaries=[],
-    datas=datas,
-    hiddenimports=hiddenimports,
+    datas=[],
+    hiddenimports=[],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -107,13 +67,17 @@ pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 exe = EXE(
     pyz,
     a.scripts,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
     [],
-    exclude_binaries=True,
     name='news_collector',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
+    upx_exclude=[],
+    runtime_tmpdir=None,
     console=True,
     disable_windowed_traceback=False,
     argv_emulation=False,
@@ -151,79 +115,18 @@ def build_exe():
         # Копируем EXE файл
         exe_src = os.path.join('dist', 'news_collector.exe')
         exe_dst = os.path.join(dist_dir, 'news_collector.exe')
-        shutil.copy2(exe_src, exe_dst)
         
-        # Создаем BAT файл для запуска
-        bat_content = '''@echo off
-chcp 65001 > nul
-title News Collector System
-echo ========================================
-echo    🎯 NEWS COLLECTOR SYSTEM
-echo ========================================
-echo.
-echo 📰 Система сбора и обработки новостей
-echo 🤖 Самодостаточное приложение
-echo 📍 Файлы сохраняются в текущей папке
-echo.
-echo 🚀 Запуск приложения...
-echo.
-news_collector.exe
-pause
-'''
-        with open(os.path.join(dist_dir, 'run_news_collector.bat'), 'w', encoding='utf-8') as f:
-            f.write(bat_content)
-        
-        # Создаем README для дистрибутива
-        readme_content = '''# News Collector System
-
-Самодостаточное Windows приложение для сбора новостей.
-
-## 🚀 Запуск
-
-Просто запустите `news_collector.exe` или `run_news_collector.bat`
-
-## 📋 Возможности
-
-- Сбор новостей с различных источников
-- AI-пересказ до 200 символов
-- Удаление дубликатов
-- Экспорт в текстовый файл
-- Автоматический сбор по расписанию
-- Редактирование источников
-
-## 📁 Файлы
-
-При первом запуске создаются:
-- `sources.json` - настройки источников
-- `news_call.txt` - файл с новостями (авто-режим)
-- `news_ticker_*.txt` - файлы с новостями (ручной режим)
-
-## ⚙️ Управление
-
-Используйте меню в приложении для:
-- Добавления/редактирования источников
-- Запуска сбора новостей
-- Настройки автоматического сбора
-- Просмотра системной информации
-
-## ❗ Важно
-
-Приложение полностью самодостаточно и не требует:
-- Установки Python
-- Установки дополнительных библиотек
-- Настройки окружения
-
-Просто скопируйте папку и запускайте!
-'''
-        with open(os.path.join(dist_dir, 'README.txt'), 'w', encoding='utf-8') as f:
-            f.write(readme_content)
-        
-        print(f"📁 Дистрибутив создан в папке: {dist_dir}")
-        print("🚀 Запустите news_collector.exe для использования приложения")
-        
-        # Статистика
-        exe_size = os.path.getsize(exe_dst) / (1024 * 1024)  # MB
-        print(f"📊 Размер EXE файла: {exe_size:.2f} MB")
+        if os.path.exists(exe_src):
+            shutil.copy2(exe_src, exe_dst)
+            print(f"📁 Дистрибутив создан в папке: {dist_dir}")
+            print("🚀 Запустите news_collector.exe для использования приложения")
+            
+            # Статистика
+            exe_size = os.path.getsize(exe_dst) / (1024 * 1024)  # MB
+            print(f"📊 Размер EXE файла: {exe_size:.2f} MB")
+        else:
+            print("❌ EXE файл не найден после сборки!")
+            return False
         
     except subprocess.CalledProcessError as e:
         print(f"❌ Ошибка при сборке: {e}")
@@ -238,7 +141,7 @@ def cleanup():
     """Очистка временных файлов"""
     print("🧹 Очистка временных файлов...")
     
-    folders_to_remove = ['build', 'dist', '__pycache__']
+    folders_to_remove = ['build', '__pycache__']
     files_to_remove = ['news_collector.spec']
     
     for folder in folders_to_remove:
