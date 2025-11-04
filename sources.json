@@ -21,6 +21,10 @@
     "admtih.ru": {
       "url": "https://admtih.ru",
       "max_news": 5
+    },
+    "78.ru": {
+      "url": "https://78.ru",
+      "max_news": 5
     }
   }
 }
