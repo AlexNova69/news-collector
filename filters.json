@@ -21,8 +21,7 @@
       "подробности",
       "ИИ-ассистент",
       "МегаФон",
-      "Мега Фон",
-      
+      "Мега Фон"
     ],
     "stop_symbols": [
       "➡",
@@ -55,25 +54,12 @@
   },
   "source_specific_filters": {
     "47news.ru": {
-      "stop_words": [
-        "47news",
-        "новости Ленобласти"
-      ],
+      "stop_words": ["47news", "новости Ленобласти"],
       "stop_symbols": [],
       "regex_patterns": []
     },
     "Фонтанка": {
-      "stop_words": [
-        "Фонтанка",
-        "Санкт-Петербург"
-      ],
-      "stop_symbols": [],
-      "regex_patterns": []
-    },
-    "78.ru": {
-      "stop_words": [
-        "Сегдня"
-      ],
+      "stop_words": ["Фонтанка", "Санкт-Петербург"],
       "stop_symbols": [],
       "regex_patterns": []
     }
