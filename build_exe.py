@@ -42,7 +42,7 @@ def install_dependencies():
     return True
 
 def create_spec_file():
-    """Создание spec файла для PyInstaller"""
+    """Создание spec файла для PyInstaller с настройкой onefile"""
     spec_content = '''# -*- mode: python ; coding: utf-8 -*-
 
 import sys
@@ -55,20 +55,32 @@ datas = []
 hiddenimports = []
 
 # Для requests
-datas += collect_all('requests')[0]
-hiddenimports += collect_all('requests')[1]
+try:
+    datas += collect_all('requests')[0]
+    hiddenimports += collect_all('requests')[1]
+except:
+    pass
 
 # Для beautifulsoup4
-datas += collect_all('beautifulsoup4')[0]
-hiddenimports += collect_all('beautifulsoup4')[1]
+try:
+    datas += collect_all('beautifulsoup4')[0] 
+    hiddenimports += collect_all('beautifulsoup4')[1]
+except:
+    pass
 
 # Для schedule
-datas += collect_all('schedule')[0]
-hiddenimports += collect_all('schedule')[1]
+try:
+    datas += collect_all('schedule')[0]
+    hiddenimports += collect_all('schedule')[1]
+except:
+    pass
 
 # Для lxml
-datas += collect_all('lxml')[0]
-hiddenimports += collect_all('lxml')[1]
+try:
+    datas += collect_all('lxml')[0]
+    hiddenimports += collect_all('lxml')[1]
+except:
+    pass
 
 # Убираем дубликаты
 datas = list(set(datas))
@@ -95,23 +107,18 @@ pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
     [],
+    exclude_binaries=True,
     name='news_collector',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    upx_exclude=[],
-    runtime_tmpdir=None,
     console=True,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codepage='utf8',
-    icon=None,
 )
 '''
     
@@ -125,14 +132,12 @@ def build_exe():
     print("🔨 Сборка EXE файла...")
     
     try:
-        # Используем spec файл для сборки
+        # Используем spec файл для сборки БЕЗ дополнительных параметров
         subprocess.check_call([
             'pyinstaller', 
             'news_collector.spec',
             '--clean',
-            '--noconfirm',
-            '--onefile',  # Важно: один файл!
-            '--add-data=news_collector.py;.',
+            '--noconfirm'
         ])
         
         print("✅ EXE файл успешно собран!")
