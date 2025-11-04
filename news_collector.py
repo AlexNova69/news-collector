@@ -47,24 +47,51 @@ class FilterManager:
     
     def load_filters(self):
         """Загрузка фильтров из JSON файла"""
+        default_filters = {
+            "global_filters": {
+                "stop_words": [],
+                "stop_symbols": [],
+                "regex_patterns": []
+            },
+            "source_specific_filters": {}
+        }
+        
         try:
             with open(self.config_file, 'r', encoding='utf-8') as f:
-                return json.load(f)
+                loaded_filters = json.load(f)
+            
+            # Рекурсивно объединяем с дефолтной структурой
+            filters = self.deep_merge(default_filters, loaded_filters)
+            
+            # Сохраняем исправленную версию (на случай если структура была неполной)
+            self.save_filters(filters)
+            
+            return filters
+            
         except FileNotFoundError:
             print(f"ℹ️ Файл фильтров {self.config_file} не найден, создан новый")
-            default_filters = {
-                "global_filters": {
-                    "stop_words": [],
-                    "stop_symbols": [],
-                    "regex_patterns": []
-                },
-                "source_specific_filters": {}
-            }
             self.save_filters(default_filters)
             return default_filters
         except Exception as e:
             print(f"❌ Ошибка загрузки фильтров: {e}")
-            return {"global_filters": {}, "source_specific_filters": {}}
+            print("🔄 Используется структура по умолчанию")
+            self.save_filters(default_filters)
+            return default_filters
+    
+    def deep_merge(self, default, user):
+        """Рекурсивное объединение словарей"""
+        result = default.copy()
+        
+        for key, value in user.items():
+            if key in result:
+                if isinstance(result[key], dict) and isinstance(value, dict):
+                    result[key] = self.deep_merge(result[key], value)
+                else:
+                    result[key] = value
+            else:
+                result[key] = value
+                
+        return result
     
     def save_filters(self, filters=None):
         """Сохранение фильтров в JSON файл"""
@@ -950,21 +977,36 @@ class NewsApp:
         filters = self.collector.filter_manager.filters
         
         print("\n🌍 ГЛОБАЛЬНЫЕ ФИЛЬТРЫ:")
-        print(f"   Стоп-слова: {len(filters['global_filters']['stop_words'])}")
-        for word in filters['global_filters']['stop_words']:
+        
+        # Безопасное извлечение данных
+        global_filters = filters.get("global_filters", {})
+        stop_words = global_filters.get("stop_words", [])
+        stop_symbols = global_filters.get("stop_symbols", [])
+        regex_patterns = global_filters.get("regex_patterns", [])
+        
+        print(f"   Стоп-слова: {len(stop_words)}")
+        for word in stop_words:
             print(f"     - {word}")
         
-        print(f"   Стоп-символы: {len(filters['global_filters']['stop_symbols'])}")
-        for symbol in filters['global_filters']['stop_symbols']:
+        print(f"   Стоп-символы: {len(stop_symbols)}")
+        for symbol in stop_symbols:
             print(f"     - {symbol}")
         
-        print(f"   Regex-паттерны: {len(filters['global_filters']['regex_patterns'])}")
+        print(f"   Regex-паттерны: {len(regex_patterns)}")
+        for pattern in regex_patterns:
+            print(f"     - {pattern}")
         
         print("\n📰 ФИЛЬТРЫ ПО ИСТОЧНИКАМ:")
-        for source_name, source_filters in filters['source_specific_filters'].items():
-            print(f"   {source_name}: {len(source_filters['stop_words'])} стоп-слов")
-            for word in source_filters['stop_words']:
-                print(f"     - {word}")
+        source_filters = filters.get("source_specific_filters", {})
+        
+        if not source_filters:
+            print("   Нет специфичных фильтров для источников")
+        else:
+            for source_name, source_config in source_filters.items():
+                source_stop_words = source_config.get("stop_words", [])
+                print(f"   {source_name}: {len(source_stop_words)} стоп-слов")
+                for word in source_stop_words:
+                    print(f"     - {word}")
         
         self.wait_for_enter()
     
@@ -1183,8 +1225,12 @@ class NewsApp:
         
         # Информация о фильтрах
         filters = self.collector.filter_manager.filters
-        print(f"🛠️  Глобальных фильтров: {len(filters['global_filters']['stop_words'])}")
-        print(f"📰 Источников с фильтрами: {len(filters['source_specific_filters'])}")
+        global_filters = filters.get("global_filters", {})
+        stop_words_count = len(global_filters.get("stop_words", []))
+        source_filters_count = len(filters.get("source_specific_filters", {}))
+        
+        print(f"🛠️  Глобальных фильтров: {stop_words_count}")
+        print(f"📰 Источников с фильтрами: {source_filters_count}")
         
         self.wait_for_enter()
     
@@ -1198,7 +1244,7 @@ class NewsApp:
             print("2. ➕ Добавить источник")
             print("3. ✏️  Редактировать источник")
             print("4. ❌ Удалить источник")
-            print("5. 🛠️  Управление фильтрами")  # НОВЫЙ ПУНКТ
+            print("5. 🛠️  Управление фильтрами")
             print("6. 📡 Собрать и экспортировать новости")
             print("7. ⚙️  Настроить автоматический сбор")
             print("8. 🔄 Запустить фоновый планировщик")
@@ -1220,7 +1266,7 @@ class NewsApp:
                 self.edit_source_interface()
             elif choice == "4":
                 self.remove_source_interface()
-            elif choice == "5":  # НОВЫЙ ПУНКТ
+            elif choice == "5":
                 self.manage_filters_interface()
             elif choice == "6":
                 self.collect_and_export()
