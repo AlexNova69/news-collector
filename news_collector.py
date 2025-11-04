@@ -11,6 +11,8 @@ import sys
 import re
 from difflib import SequenceMatcher
 import hashlib
+import subprocess
+import webbrowser
 
 class SimpleSummarizer:
     """Упрощенный AI-агент для пересказа новостей"""
@@ -132,6 +134,24 @@ class NewsCollector:
         else:
             print(f"❌ Источник '{name}' не найден!")
     
+    def edit_source(self, old_name, new_name, url, max_news):
+        """Редактирование источника новостей"""
+        if old_name in self.sources["sources"]:
+            # Если имя изменилось, удаляем старый и создаем новый
+            if old_name != new_name:
+                del self.sources["sources"][old_name]
+            
+            self.sources["sources"][new_name] = {
+                "url": url,
+                "max_news": max_news
+            }
+            self.save_sources()
+            print(f"✅ Источник '{old_name}' обновлен на '{new_name}'!")
+            return True
+        else:
+            print(f"❌ Источник '{old_name}' не найден!")
+            return False
+    
     def list_sources(self):
         """Вывод списка всех источников"""
         if not self.sources["sources"]:
@@ -139,8 +159,8 @@ class NewsCollector:
             return
         
         print("\n📋 Список источников:")
-        for name, config in self.sources["sources"].items():
-            print(f"  📰 {name}: {config['url']} (макс. новостей: {config['max_news']})")
+        for i, (name, config) in enumerate(self.sources["sources"].items(), 1):
+            print(f"  {i}. 📰 {name}: {config['url']} (макс. новостей: {config['max_news']})")
     
     def get_text_hash(self, text):
         """Создание хеша текста для проверки дубликатов"""
@@ -588,23 +608,6 @@ class NewsExporter:
             print(f"   🎯 В диапазоне 150-200: {sum(1 for n in news_items if 150 <= n['length'] <= 200)}")
             print(f"   📐 Диапазон: {min(n['length'] for n in news_items)}-{max(n['length'] for n in news_items)} символов")
             
-            # Показываем примеры с группировкой по источникам
-            print(f"\n📄 Примеры обработанных новостей (с группировкой по источникам):")
-            print("-" * 50)
-            current_source = None
-            example_count = 0
-            for news_item in news_items:
-                if news_item['source'] != current_source:
-                    current_source = news_item['source']
-                    print(f"\n{current_source}:")
-                print(f"  {news_item['text']} ({news_item['length']} симв.)")
-                example_count += 1
-                if example_count >= 8:  # Показываем не более 8 примеров
-                    break
-            if len(news_items) > 8:
-                print(f"\n... и еще {len(news_items) - 8} новостей")
-            print("-" * 50)
-            
             return filename
         except Exception as e:
             print(f"❌ Ошибка при экспорте в файл: {e}")
@@ -619,17 +622,40 @@ class NewsApp:
         self.scheduler_running = False
         self.scheduler_thread = None
     
+    def clear_screen(self):
+        """Очистка экрана консоли"""
+        os.system('cls' if os.name == 'nt' else 'clear')
+    
+    def print_header(self):
+        """Вывод заголовка приложения"""
+        self.clear_screen()
+        print("=" * 70)
+        print("           🎯 СИСТЕМА СБОРА НОВОСТЕЙ - WINDOWS ПРИЛОЖЕНИЕ")
+        print("=" * 70)
+        print("🤖 УПРОЩЕННЫЙ AI ДЛЯ ПЕРЕСКАЗА НОВОСТЕЙ")
+        print("📝 ФОРМАТ: КАЖДАЯ НОВОСТЬ - ОДНА СТРОКА ДО 200 СИМВОЛОВ")
+        print("📰 ГРУППИРОВКА ПО ИСТОЧНИКАМ С НАЗВАНИЯМИ")
+        print("🚫 БЕЗ ЗАВИСИМОСТИ ОТ ВНЕШНИХ API")
+        print("-" * 70)
+    
+    def wait_for_enter(self):
+        """Ожидание нажатия Enter"""
+        input("\n↵ Нажмите Enter для продолжения...")
+    
     def add_source_interface(self):
         """Интерфейс добавления источника"""
-        print("\n--- Добавление нового источника ---")
+        self.print_header()
+        print("--- ДОБАВЛЕНИЕ НОВОГО ИСТОЧНИКА ---")
         name = input("Введите название источника: ").strip()
         if not name:
             print("❌ Название не может быть пустым!")
+            self.wait_for_enter()
             return
             
         url = input("Введите URL источника: ").strip()
         if not url.startswith('http'):
             print("❌ URL должен начинаться с http:// или https://")
+            self.wait_for_enter()
             return
         
         try:
@@ -638,28 +664,111 @@ class NewsApp:
             max_news = 5
         
         self.collector.add_source(name, url, max_news)
+        self.wait_for_enter()
+    
+    def edit_source_interface(self):
+        """Интерфейс редактирования источника"""
+        self.print_header()
+        print("--- РЕДАКТИРОВАНИЕ ИСТОЧНИКА ---")
+        
+        sources = list(self.collector.sources["sources"].keys())
+        if not sources:
+            print("📭 Нет добавленных источников для редактирования")
+            self.wait_for_enter()
+            return
+        
+        print("📋 Список источников для редактирования:")
+        for i, source_name in enumerate(sources, 1):
+            config = self.collector.sources["sources"][source_name]
+            print(f"  {i}. {source_name} - {config['url']} (макс: {config['max_news']})")
+        
+        try:
+            choice = int(input(f"\nВыберите номер источника для редактирования (1-{len(sources)}): "))
+            if 1 <= choice <= len(sources):
+                old_name = sources[choice - 1]
+                old_config = self.collector.sources["sources"][old_name]
+                
+                print(f"\nРедактирование источника: {old_name}")
+                new_name = input(f"Новое название [{old_name}]: ").strip() or old_name
+                new_url = input(f"Новый URL [{old_config['url']}]: ").strip() or old_config['url']
+                new_max_news = input(f"Новое макс. количество новостей [{old_config['max_news']}]: ").strip()
+                new_max_news = int(new_max_news) if new_max_news else old_config['max_news']
+                
+                self.collector.edit_source(old_name, new_name, new_url, new_max_news)
+            else:
+                print("❌ Неверный выбор!")
+        except (ValueError, IndexError):
+            print("❌ Неверный ввод!")
+        
+        self.wait_for_enter()
     
     def remove_source_interface(self):
         """Интерфейс удаления источника"""
-        print("\n--- Удаление источника ---")
-        self.collector.list_sources()
-        name = input("Введите название источника для удаления: ").strip()
-        if name:
-            self.collector.remove_source(name)
+        self.print_header()
+        print("--- УДАЛЕНИЕ ИСТОЧНИКА ---")
+        
+        sources = list(self.collector.sources["sources"].keys())
+        if not sources:
+            print("📭 Нет добавленных источников")
+            self.wait_for_enter()
+            return
+        
+        print("📋 Список источников для удаления:")
+        for i, source_name in enumerate(sources, 1):
+            config = self.collector.sources["sources"][source_name]
+            print(f"  {i}. {source_name} - {config['url']}")
+        
+        try:
+            choice = int(input(f"\nВыберите номер источника для удаления (1-{len(sources)}): "))
+            if 1 <= choice <= len(sources):
+                source_name = sources[choice - 1]
+                confirm = input(f"Вы уверены, что хотите удалить источник '{source_name}'? (y/n): ").strip().lower()
+                if confirm in ['y', 'yes', 'д', 'да']:
+                    self.collector.remove_source(source_name)
+                else:
+                    print("❌ Удаление отменено")
+            else:
+                print("❌ Неверный выбор!")
+        except (ValueError, IndexError):
+            print("❌ Неверный ввод!")
+        
+        self.wait_for_enter()
     
     def collect_and_export(self):
         """Сбор и экспорт новостей"""
+        self.print_header()
+        print("--- СБОР И ЭКСПОРТ НОВОСТЕЙ ---")
+        
+        if not self.collector.sources["sources"]:
+            print("❌ Нет добавленных источников! Добавьте источники сначала.")
+            self.wait_for_enter()
+            return
+        
         news = self.collector.collect_news()
         
         if not news:
             print("❌ Новости не найдены!")
+            self.wait_for_enter()
             return
         
-        filename = input("Введите имя файла для экспорта (или Enter для автоматического): ").strip()
-        if not filename:
+        print("\n💾 Настройка экспорта:")
+        print("1. Автоматическое имя файла (с timestamp)")
+        print("2. Указать имя файла вручную")
+        print("3. Использовать news_call.txt (для автоматического режима)")
+        
+        choice = input("Выберите вариант (1-3): ").strip()
+        
+        if choice == "1":
+            filename = None
+        elif choice == "2":
+            filename = input("Введите имя файла: ").strip()
+            if not filename:
+                filename = None
+        elif choice == "3":
+            filename = "news_call.txt"
+        else:
             filename = None
         
-        # Передаем конфигурацию источников для группировки
         result_file = self.exporter.export_to_txt(
             news, 
             self.collector.sources["sources"], 
@@ -668,49 +777,64 @@ class NewsApp:
         )
         if result_file:
             print(f"📁 Файл сохранен: {os.path.abspath(result_file)}")
+        
+        self.wait_for_enter()
     
     def setup_schedule(self):
         """Настройка автоматического сбора по расписанию"""
-        print("\n--- Настройка расписания ---")
-        print("1. Ежедневно в определенное время")
+        self.print_header()
+        print("--- НАСТРОЙКА АВТОМАТИЧЕСКОГО СБОРА ---")
+        
+        if not self.collector.sources["sources"]:
+            print("❌ Нет добавленных источников! Добавьте источники сначала.")
+            self.wait_for_enter()
+            return
+        
+        print("Выберите интервал автоматического сбора:")
+        print("1. Каждые 30 минут")
         print("2. Каждый час")
-        print("3. Каждые 30 минут")
-        print("4. Каждые 2 часа")
-        print("5. Каждые 3 часа")
-        print("6. Каждые 4 часа")
-        print("7. Каждые 5 часов")
+        print("3. Каждые 2 часа")
+        print("4. Каждые 3 часа")
+        print("5. Каждые 4 часа")
+        print("6. Каждые 5 часов")
+        print("7. Ежедневно в определенное время")
         print("8. Отменить расписание")
         
-        choice = input("Выберите вариант: ").strip()
+        choice = input("Выберите вариант (1-8): ").strip()
         
         schedule.clear()
         
         if choice == "1":
-            time_str = input("Введите время (формат HH:MM): ").strip()
-            schedule.every().day.at(time_str).do(self.scheduled_task)
-            print(f"✅ Расписание установлено на ежедневное выполнение в {time_str}")
+            schedule.every(30).minutes.do(self.scheduled_task)
+            print("✅ Расписание установлено: каждые 30 минут")
         elif choice == "2":
             schedule.every().hour.do(self.scheduled_task)
-            print("✅ Расписание установлено на выполнение каждый час")
+            print("✅ Расписание установлено: каждый час")
         elif choice == "3":
-            schedule.every(30).minutes.do(self.scheduled_task)
-            print("✅ Расписание установлено на выполнение каждые 30 минут")
-        elif choice == "4":
             schedule.every(2).hours.do(self.scheduled_task)
-            print("✅ Расписание установлено на выполнение каждые 2 часа")
-        elif choice == "5":
+            print("✅ Расписание установлено: каждые 2 часа")
+        elif choice == "4":
             schedule.every(3).hours.do(self.scheduled_task)
-            print("✅ Расписание установлено на выполнение каждые 3 часа")
-        elif choice == "6":
+            print("✅ Расписание установлено: каждые 3 часа")
+        elif choice == "5":
             schedule.every(4).hours.do(self.scheduled_task)
-            print("✅ Расписание установлено на выполнение каждые 4 часа")
-        elif choice == "7":
+            print("✅ Расписание установлено: каждые 4 часа")
+        elif choice == "6":
             schedule.every(5).hours.do(self.scheduled_task)
-            print("✅ Расписание установлено на выполнение каждые 5 часа")
+            print("✅ Расписание установлено: каждые 5 часов")
+        elif choice == "7":
+            time_str = input("Введите время в формате HH:MM: ").strip()
+            try:
+                schedule.every().day.at(time_str).do(self.scheduled_task)
+                print(f"✅ Расписание установлено: ежедневно в {time_str}")
+            except Exception as e:
+                print(f"❌ Ошибка установки расписания: {e}")
         elif choice == "8":
             print("✅ Расписание отменено")
         else:
             print("❌ Неверный выбор!")
+        
+        self.wait_for_enter()
     
     def scheduled_task(self):
         """Задача для выполнения по расписанию"""
@@ -718,9 +842,7 @@ class NewsApp:
         try:
             news = self.collector.collect_news()
             if news:
-                # В автоматическом режиме используем фиксированное имя файла
                 filename = "news_call.txt"
-                # Передаем конфигурацию источников для группировки
                 result_file = self.exporter.export_to_txt(
                     news, 
                     self.collector.sources["sources"], 
@@ -744,12 +866,18 @@ class NewsApp:
     
     def start_scheduler(self):
         """Запуск фонового планировщика"""
+        self.print_header()
+        print("--- ЗАПУСК ПЛАНИРОВЩИКА ---")
+        
         if not self.scheduler_running:
             self.scheduler_thread = threading.Thread(target=self.run_scheduler, daemon=True)
             self.scheduler_thread.start()
             print("✅ Планировщик запущен в фоновом режиме")
+            print("💡 Планировщик будет работать, пока приложение активно")
         else:
             print("ℹ️  Планировщик уже запущен")
+        
+        self.wait_for_enter()
     
     def stop_scheduler(self):
         """Остановка планировщика"""
@@ -759,7 +887,9 @@ class NewsApp:
     
     def quick_start(self):
         """Быстрый старт с примером источников"""
-        print("\n🚀 Быстрый старт...")
+        self.print_header()
+        print("--- БЫСТРЫЙ СТАРТ ---")
+        
         example_sources = {
             "47news.ru": "https://47news.ru",
             "Фонтанка": "https://www.fontanka.ru",
@@ -767,70 +897,132 @@ class NewsApp:
             "МК Петербург": "https://spb.mk.ru"
         }
         
+        added_count = 0
         for name, url in example_sources.items():
             if name not in self.collector.sources["sources"]:
                 self.collector.add_source(name, url, 5)
+                added_count += 1
         
-        print("✅ Примеры источников добавлены!")
+        if added_count > 0:
+            print(f"✅ Добавлено {added_count} примеров источников!")
+        else:
+            print("ℹ️  Все примеры источников уже добавлены")
+        
         self.collector.list_sources()
+        self.wait_for_enter()
+    
+    def open_web_ui(self):
+        """Запуск Web UI"""
+        self.print_header()
+        print("--- ЗАПУСК WEB ИНТЕРФЕЙСА ---")
+        
+        try:
+            # Проверяем наличие web_ui.py
+            if os.path.exists("web_ui.py"):
+                print("🚀 Запуск Web UI...")
+                # Запускаем в отдельном процессе
+                subprocess.Popen([sys.executable, "web_ui.py"])
+                print("✅ Web UI запускается в фоновом режиме")
+                print("📧 Открытие браузера...")
+                time.sleep(2)
+                webbrowser.open("http://localhost:5000")
+                print("🌐 Web UI доступен по адресу: http://localhost:5000")
+            else:
+                print("❌ Файл web_ui.py не найден!")
+                print("💡 Убедитесь, что файл находится в той же папке")
+        except Exception as e:
+            print(f"❌ Ошибка при запуске Web UI: {e}")
+        
+        self.wait_for_enter()
+    
+    def show_system_info(self):
+        """Показать системную информацию"""
+        self.print_header()
+        print("--- СИСТЕМНАЯ ИНФОРМАЦИЯ ---")
+        
+        print(f"📁 Текущая папка: {os.getcwd()}")
+        print(f"🐍 Версия Python: {sys.version.split()[0]}")
+        print(f"📰 Количество источников: {len(self.collector.sources['sources'])}")
+        print(f"⏰ Планировщик: {'✅ Активен' if self.scheduler_running else '❌ Остановлен'}")
+        
+        # Проверяем наличие файлов
+        files_to_check = ["sources.json", "news_call.txt"]
+        for file in files_to_check:
+            if os.path.exists(file):
+                size = os.path.getsize(file)
+                print(f"📄 {file}: {size} байт")
+            else:
+                print(f"📄 {file}: ❌ Не найден")
+        
+        self.wait_for_enter()
     
     def main_menu(self):
         """Главное меню приложения"""
         while True:
-            print("\n" + "="*60)
-            print("           🎯 СИСТЕМА СБОРА НОВОСТЕЙ")
-            print("="*60)
-            print("🤖 УПРОЩЕННЫЙ AI ДЛЯ ПЕРЕСКАЗА НОВОСТЕЙ")
-            print("📝 ФОРМАТ: КАЖДАЯ НОВОСТЬ - ОДНА СТРОКА ДО 200 СИМВОЛОВ")
-            print("📰 ГРУППИРОВКА ПО ИСТОЧНИКАМ С НАЗВАНИЯМИ")
-            print("🚫 БЕЗ ЗАВИСИМОСТИ ОТ ВНЕШНИХ API")
-            print("-"*60)
+            self.print_header()
+            
+            print("ГЛАВНОЕ МЕНЮ:")
             print("1. 📋 Показать источники")
             print("2. ➕ Добавить источник")
-            print("3. ❌ Удалить источник")
-            print("4. 📡 Собрать и экспортировать новости")
-            print("5. ⚙️  Настроить автоматический сбор")
-            print("6. 🔄 Запустить фоновый планировщик")
-            print("7. ⏹️  Остановить планировщик")
-            print("8. 🚀 Быстрый старт (добавить примеры источников)")
+            print("3. ✏️  Редактировать источник")
+            print("4. ❌ Удалить источник")
+            print("5. 📡 Собрать и экспортировать новости")
+            print("6. ⚙️  Настроить автоматический сбор")
+            print("7. 🔄 Запустить фоновый планировщик")
+            print("8. ⏹️  Остановить планировщик")
+            print("9. 🚀 Быстрый старт (добавить примеры источников)")
+            print("10. 🌐 Запуск Web UI")
+            print("11. ℹ️  Системная информация")
             print("0. 🚪 Выход")
-            print("-"*60)
+            print("-" * 70)
             
-            choice = input("Выберите действие: ").strip()
+            choice = input("Выберите действие (0-11): ").strip()
             
             if choice == "1":
+                self.print_header()
                 self.collector.list_sources()
+                self.wait_for_enter()
             elif choice == "2":
                 self.add_source_interface()
             elif choice == "3":
-                self.remove_source_interface()
+                self.edit_source_interface()
             elif choice == "4":
-                self.collect_and_export()
+                self.remove_source_interface()
             elif choice == "5":
-                self.setup_schedule()
+                self.collect_and_export()
             elif choice == "6":
-                self.start_scheduler()
+                self.setup_schedule()
             elif choice == "7":
-                self.stop_scheduler()
+                self.start_scheduler()
             elif choice == "8":
+                self.stop_scheduler()
+                self.wait_for_enter()
+            elif choice == "9":
                 self.quick_start()
+            elif choice == "10":
+                self.open_web_ui()
+            elif choice == "11":
+                self.show_system_info()
             elif choice == "0":
                 self.stop_scheduler()
                 print("\n👋 До свидания!")
                 break
             else:
                 print("❌ Неверный выбор!")
+                self.wait_for_enter()
 
 def main():
     """Основная функция запуска приложения"""
-    print("🚀 Загрузка упрощенной системы сбора новостей...")
-    print("💡 Работает без внешних зависимостей")
-    print("📰 Новости группируются по источникам с названиями")
+    print("🚀 Загрузка News Collector System...")
+    print("💡 Создание Windows приложения...")
+    time.sleep(1)
     
     app = NewsApp()
     
+    # Проверяем наличие источников, предлагаем быстрый старт
     if not app.collector.sources["sources"]:
-        print("\nℹ️  Источники новостей не настроены.")
+        app.print_header()
+        print("ℹ️  Источники новостей не настроены.")
         quick_start = input("Хотите выполнить быстрый старт с примерами источников? (y/n): ").strip().lower()
         if quick_start in ['y', 'yes', 'д', 'да']:
             app.quick_start()
