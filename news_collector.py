@@ -536,8 +536,8 @@ class NewsExporter:
     """Экспорт новостей в файл для бегущей строки"""
     
     @staticmethod
-    def export_to_txt(news_items, filename=None, is_scheduled=False):
-        """Экспорт новостей в текстовый файл"""
+    def export_to_txt(news_items, sources_config, filename=None, is_scheduled=False):
+        """Экспорт новостей в текстовый файл с группировкой по источникам"""
         if not news_items:
             print("❌ Нет новостей для экспорта!")
             return None
@@ -552,11 +552,26 @@ class NewsExporter:
                 filename = f"news_ticker_{timestamp}.txt"
         
         try:
-            # В автоматическом режиме перезаписываем файл
-            mode = 'w'
-            with open(filename, mode, encoding='utf-8') as f:
-                for news in news_items:
-                    f.write(news['text'] + '\n')
+            # Группируем новости по источникам
+            news_by_source = {}
+            for news in news_items:
+                source = news['source']
+                if source not in news_by_source:
+                    news_by_source[source] = []
+                news_by_source[source].append(news)
+            
+            # Записываем в файл с группировкой по источникам
+            with open(filename, 'w', encoding='utf-8') as f:
+                # Проходим по источникам в порядке конфигурации
+                for source_name in sources_config.keys():
+                    if source_name in news_by_source and news_by_source[source_name]:
+                        # Записываем название источника
+                        f.write(f"{source_name}\n")
+                        # Записываем новости этого источника
+                        for news in news_by_source[source_name]:
+                            f.write(news['text'] + '\n')
+                        # Добавляем пустую строку между источниками
+                        f.write('\n')
             
             # Статистика
             total_chars = sum(len(news['text']) for news in news_items)
@@ -573,13 +588,21 @@ class NewsExporter:
             print(f"   🎯 В диапазоне 150-200: {sum(1 for n in news_items if 150 <= n['length'] <= 200)}")
             print(f"   📐 Диапазон: {min(n['length'] for n in news_items)}-{max(n['length'] for n in news_items)} символов")
             
-            # Показываем примеры
-            print(f"\n📄 Примеры обработанных новостей:")
+            # Показываем примеры с группировкой по источникам
+            print(f"\n📄 Примеры обработанных новостей (с группировкой по источникам):")
             print("-" * 50)
-            for i, news_item in enumerate(news_items[:5]):
-                print(f"{news_item['text']} ({news_item['length']} симв.)")
-            if len(news_items) > 5:
-                print(f"... и еще {len(news_items) - 5} новостей")
+            current_source = None
+            example_count = 0
+            for news_item in news_items:
+                if news_item['source'] != current_source:
+                    current_source = news_item['source']
+                    print(f"\n{current_source}:")
+                print(f"  {news_item['text']} ({news_item['length']} симв.)")
+                example_count += 1
+                if example_count >= 8:  # Показываем не более 8 примеров
+                    break
+            if len(news_items) > 8:
+                print(f"\n... и еще {len(news_items) - 8} новостей")
             print("-" * 50)
             
             return filename
@@ -636,7 +659,13 @@ class NewsApp:
         if not filename:
             filename = None
         
-        result_file = self.exporter.export_to_txt(news, filename, is_scheduled=False)
+        # Передаем конфигурацию источников для группировки
+        result_file = self.exporter.export_to_txt(
+            news, 
+            self.collector.sources["sources"], 
+            filename, 
+            is_scheduled=False
+        )
         if result_file:
             print(f"📁 Файл сохранен: {os.path.abspath(result_file)}")
     
@@ -691,7 +720,13 @@ class NewsApp:
             if news:
                 # В автоматическом режиме используем фиксированное имя файла
                 filename = "news_call.txt"
-                result_file = self.exporter.export_to_txt(news, filename, is_scheduled=True)
+                # Передаем конфигурацию источников для группировки
+                result_file = self.exporter.export_to_txt(
+                    news, 
+                    self.collector.sources["sources"], 
+                    filename, 
+                    is_scheduled=True
+                )
                 if result_file:
                     print(f"📁 Файл обновлен: {os.path.abspath(result_file)}")
             else:
@@ -726,10 +761,10 @@ class NewsApp:
         """Быстрый старт с примером источников"""
         print("\n🚀 Быстрый старт...")
         example_sources = {
+            "47news.ru": "https://47news.ru",
             "Фонтанка": "https://www.fontanka.ru",
             "78.ru": "https://78.ru",
-            "МК Петербург": "https://spb.mk.ru",
-            "47news": "https://47news.ru"
+            "МК Петербург": "https://spb.mk.ru"
         }
         
         for name, url in example_sources.items():
@@ -747,6 +782,7 @@ class NewsApp:
             print("="*60)
             print("🤖 УПРОЩЕННЫЙ AI ДЛЯ ПЕРЕСКАЗА НОВОСТЕЙ")
             print("📝 ФОРМАТ: КАЖДАЯ НОВОСТЬ - ОДНА СТРОКА ДО 200 СИМВОЛОВ")
+            print("📰 ГРУППИРОВКА ПО ИСТОЧНИКАМ С НАЗВАНИЯМИ")
             print("🚫 БЕЗ ЗАВИСИМОСТИ ОТ ВНЕШНИХ API")
             print("-"*60)
             print("1. 📋 Показать источники")
@@ -789,6 +825,7 @@ def main():
     """Основная функция запуска приложения"""
     print("🚀 Загрузка упрощенной системы сбора новостей...")
     print("💡 Работает без внешних зависимостей")
+    print("📰 Новости группируются по источникам с названиями")
     
     app = NewsApp()
     
