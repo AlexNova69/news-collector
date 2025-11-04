@@ -41,7 +41,7 @@ def install_dependencies():
     return True
 
 def create_spec_file():
-    """Создание spec файла для PyInstaller с настройкой onefile"""
+    """Создание spec файла для PyInstaller с настройкой onefile и включением filters.json"""
     spec_content = '''# -*- mode: python ; coding: utf-8 -*-
 
 block_cipher = None
@@ -50,7 +50,10 @@ a = Analysis(
     ['news_collector.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[
+        ('filters.json', '.'),
+        ('sources.json', '.')
+    ],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
@@ -91,6 +94,71 @@ exe = EXE(
     
     print("✅ Создан spec файл")
 
+def ensure_config_files():
+    """Создание необходимых конфигурационных файлов если их нет"""
+    config_files = {
+        'filters.json': '''{
+  "global_filters": {
+    "stop_words": [
+      "читать дальше",
+      "подробнее",
+      "комментарии",
+      "фото",
+      "видео",
+      "источник",
+      "новости",
+      "главное",
+      "смотрите также",
+      "реклама",
+      "афиша",
+      "расписание",
+      "лента добра",
+      "хочешь видеть",
+      "вернуться в обычную",
+      "все новости",
+      "читать полностью",
+      "подробности",
+      "ИИ-ассистент",
+      "МегаФон",
+      "Мега Фон"
+    ],
+    "stop_symbols": [
+      "➡",
+      "⭐",
+      "🔥",
+      "❗",
+      "❌",
+      "✅"
+    ],
+    "regex_patterns": [
+      "^\\\\d{1,2}:\\\\d{2}\\\\s*$",
+      "^\\\\d{3,4}\\\\s*$",
+      "^\\\\d{1,2}\\\\.\\\\d{2}\\\\.\\\\s*$",
+      "^\\\\d{1,2}\\\\s*(час|ч|минут|мин|\\\\.)"
+    ]
+  },
+  "source_specific_filters": {}
+}''',
+        'sources.json': '''{
+  "sources": {
+    "47news.ru": {
+      "url": "https://47news.ru",
+      "max_news": 5
+    },
+    "Фонтанка": {
+      "url": "https://www.fontanka.ru",
+      "max_news": 5
+    }
+  }
+}'''
+    }
+    
+    for filename, content in config_files.items():
+        if not os.path.exists(filename):
+            with open(filename, 'w', encoding='utf-8') as f:
+                f.write(content)
+            print(f"✅ Создан файл: {filename}")
+
 def build_exe():
     """Сборка EXE файла"""
     print("🔨 Сборка EXE файла...")
@@ -118,12 +186,23 @@ def build_exe():
         
         if os.path.exists(exe_src):
             shutil.copy2(exe_src, exe_dst)
+            
+            # Копируем конфигурационные файлы в дистрибутив
+            for config_file in ['filters.json', 'sources.json']:
+                if os.path.exists(config_file):
+                    shutil.copy2(config_file, os.path.join(dist_dir, config_file))
+            
             print(f"📁 Дистрибутив создан в папке: {dist_dir}")
             print("🚀 Запустите news_collector.exe для использования приложения")
             
             # Статистика
             exe_size = os.path.getsize(exe_dst) / (1024 * 1024)  # MB
             print(f"📊 Размер EXE файла: {exe_size:.2f} MB")
+            
+            print("\n📋 В дистрибутив включены:")
+            print("   ✅ news_collector.exe - основное приложение")
+            print("   ✅ filters.json - файл фильтров")
+            print("   ✅ sources.json - файл источников")
         else:
             print("❌ EXE файл не найден после сборки!")
             return False
@@ -159,7 +238,11 @@ def main():
     print("🎯 News Collector - Сборка самодостаточного EXE файла")
     print("=" * 60)
     print("💡 Создается один EXE файл, не требующий установки Python!")
+    print("🛠️  Включает систему внешних фильтров filters.json")
     print("=" * 60)
+    
+    # Создаем необходимые конфигурационные файлы
+    ensure_config_files()
     
     # Проверяем PyInstaller
     if not check_pyinstaller():
@@ -190,6 +273,7 @@ def main():
         print("✅ Не требует дополнительных библиотек")
         print("✅ Все файлы создаются рядом с EXE")
         print("✅ Кодировка UTF-8 для русского языка")
+        print("✅ Включена система фильтров filters.json")
         
         # Очистка
         cleanup_choice = input("\nОчистить временные файлы сборки? (y/n): ").strip().lower()
