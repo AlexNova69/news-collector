@@ -1,0 +1,24 @@
+{
+  "sources": {
+    "Lenta.ru": {
+      "url": "https://lenta.ru",
+      "max_news": 5,
+      "selector": "auto"
+    },
+    "РИА Новости": {
+      "url": "https://ria.ru",
+      "max_news": 5,
+      "selector": "auto"
+    },
+    "ТАСС": {
+      "url": "https://tass.ru",
+      "max_news": 5,
+      "selector": "auto"
+    },
+    "Интерфакс": {
+      "url": "https://www.interfax.ru",
+      "max_news": 3,
+      "selector": "auto"
+    }
+  }
+}

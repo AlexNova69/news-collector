@@ -1,0 +1,2 @@
+[console_scripts]
+news-collector = news_collector:main

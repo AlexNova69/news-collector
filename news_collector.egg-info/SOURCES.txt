@@ -1,0 +1,9 @@
+README.md
+news_collector.py
+setup.py
+news_collector.egg-info/PKG-INFO
+news_collector.egg-info/SOURCES.txt
+news_collector.egg-info/dependency_links.txt
+news_collector.egg-info/entry_points.txt
+news_collector.egg-info/requires.txt
+news_collector.egg-info/top_level.txt

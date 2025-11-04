@@ -1,0 +1,44 @@
+Инструкция по установке:
+1. Установка NSSM (Non-Sucking Service Manager)
+Скачайте NSSM с официального сайта: https://nssm.cc/download
+
+Распакуйте и скопируйте nssm.exe в папку с вашим проектом
+
+2. Создание виртуального окружения
+bash
+python -m venv venv
+venv\Scripts\activate
+pip install -r requirements_service.txt
+3. Установка службы
+Запустите install_service.bat от имени администратора
+
+4. Управление службой
+Используйте manage_service.bat для управления службой или команды:
+
+batch
+# Запуск
+nssm start NewsCollectorService
+
+# Остановка
+nssm stop NewsCollectorService
+
+# Перезапуск
+nssm restart NewsCollectorService
+
+# Статус
+nssm status NewsCollectorService
+
+# Удаление
+nssm remove NewsCollectorService confirm
+Особенности службы:
+Автозапуск: Служба запускается автоматически при старте системы
+
+Логирование: Все события записываются в файлы в папке logs/
+
+Конфигурация: Настройки интервала сохраняются в service_config.json
+
+Автоматический файл: Всегда используется news_call.txt для автоматического режима
+
+Мониторинг: Можно отслеживать статус через системные службы Windows
+
+Служба будет работать в фоне и автоматически обновлять файл с новостями согласно установленному расписанию.
