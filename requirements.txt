@@ -5,3 +5,4 @@ lxml==6.0.0
 urllib3==2.0.7
 google-generativeai==0.3.0
 Flask==2.3.3
+pyinstaller==5.13.0
