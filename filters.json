@@ -54,12 +54,18 @@
   },
   "source_specific_filters": {
     "47news.ru": {
-      "stop_words": ["47news", "новости Ленобласти"],
+      "stop_words": [
+        "47news",
+        "новости Ленобласти"
+      ],
       "stop_symbols": [],
       "regex_patterns": []
     },
     "Фонтанка": {
-      "stop_words": ["Фонтанка", "Санкт-Петербург"],
+      "stop_words": [
+        "Фонтанка",
+        "Санкт-Петербург"
+      ],
       "stop_symbols": [],
       "regex_patterns": []
     }

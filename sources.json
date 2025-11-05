@@ -1,41 +1,12 @@
 {
   "sources": {
-    "47news": {
+    "47news.ru": {
       "url": "https://47news.ru",
-      "max_news": 5,
-      "selector": "auto"
-    },
-    "online47.ru": {
-      "url": "https://online47.ru",
       "max_news": 5
-    },
-    "n-put.ru": {
-      "url": "https://n-put.ru",
-      "max_news": 5
-    },
-    "admtih.ru": {
-      "url": "https://admtih.ru",
-      "max_news": 5
-<<<<<<< Updated upstream
-=======
-    },
-    "78.ru": {
-      "url": "https://78.ru",
-      "max_news": 5
-    },
-    "fontanka.ru": {
-      "url": "https://fontanka.ru",
-      "max_news": 5
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
     }
   },
   "settings": {
-    "auto_save_directory": "D:/news_collector/NewsCollectorDist"
+    "auto_save_directory": null,
+    "news_length_range": "150-200"
   }
 }

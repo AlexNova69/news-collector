@@ -338,6 +338,7 @@ class NewsCollector:
     def set_news_length_range(self, range_name):
         """Установка диапазона длины новостей"""
         valid_ranges = {
+            "100-175": (100, 175),
             "150-200": (150, 200),
             "200-250": (200, 250),
             "250-300": (250, 300)
@@ -357,6 +358,7 @@ class NewsCollector:
         """Получение текущего диапазона длины новостей"""
         range_name = self.sources["settings"].get("news_length_range", "150-200")
         valid_ranges = {
+            "100-175": (100, 175),
             "150-200": (150, 200),
             "200-250": (200, 250),
             "250-300": (250, 300)
@@ -991,20 +993,24 @@ class NewsApp:
         print(f"📏 Текущий диапазон: {current_range} ({min_len}-{max_len} символов)")
         
         print("\nВыберите диапазон длины новостей:")
-        print("1. 📏 150-200 символов (по умолчанию, компактные новости)")
-        print("2. 📏 200-250 символов (более подробные новости)")
-        print("3. 📏 250-300 символов (максимальная детализация)")
+        print("1. 📏 100-175 символов (короткие новости)")
+        print("2. 📏 150-200 символов (по умолчанию, компактные новости)")
+        print("3. 📏 200-250 символов (более подробные новости)")
+        print("4. 📏 250-300 символов (максимальная детализация)")
         print("0. ↩️  Назад")
         
-        choice = input("Выберите вариант (0-3): ").strip()
+        choice = input("Выберите вариант (0-4): ").strip()
         
         if choice == "1":
+            if self.collector.set_news_length_range("100-175"):
+                print("✅ Диапазон установлен: 100-175 символов")
+        elif choice == "2":
             if self.collector.set_news_length_range("150-200"):
                 print("✅ Диапазон установлен: 150-200 символов")
-        elif choice == "2":
+        elif choice == "3":
             if self.collector.set_news_length_range("200-250"):
                 print("✅ Диапазон установлен: 200-250 символов")
-        elif choice == "3":
+        elif choice == "4":
             if self.collector.set_news_length_range("250-300"):
                 print("✅ Диапазон установлен: 250-300 символов")
         elif choice == "0":
