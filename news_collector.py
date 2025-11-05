@@ -875,6 +875,12 @@ class NewsApp:
         
         self.wait_for_enter()
     
+<<<<<<< Updated upstream
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
     def add_source_interface(self):
         """Интерфейс добавления источника"""
@@ -1308,6 +1314,7 @@ class NewsApp:
             print("2. ➕ Добавить источник")
             print("3. ✏️  Редактировать источник")
             print("4. ❌ Удалить источник")
+<<<<<<< Updated upstream
             print("5. 📡 Собрать и экспортировать новости")
             print("6. ⚙️  Настроить автоматический сбор")
             print("7. 🔄 Запустить фоновый планировщик")
@@ -1318,6 +1325,23 @@ class NewsApp:
             print("-" * 70)
             
             choice = input("Выберите действие (0-10): ").strip()
+=======
+            print("5. 🛠️  Управление фильтрами")
+            print("6. 📡 Собрать и экспортировать новости")
+            print("7. ⚙️  Настроить автоматический сбор")
+            print("8. 🔄 Запустить фоновый планировщик")
+            print("9. ⏹️  Остановить планировщик")
+            print("10. 🚀 Быстрый старт (добавить примеры источников)")
+            print("11. 📁 Настроить папку автосохранения")
+            print("12. ℹ️  Системная информация")
+            print("0. 🚪 Выход")
+            print("-" * 70)
+            
+            choice = input("Выберите действие (0-12): ").strip()
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
+>>>>>>> Stashed changes
             
             if choice == "1":
                 self.print_header()
@@ -1342,7 +1366,16 @@ class NewsApp:
                 self.wait_for_enter()
             elif choice == "9":
                 self.quick_start()
+<<<<<<< Updated upstream
             elif choice == "10":
+=======
+            elif choice == "11":
+                self.setup_auto_save_directory()
+            elif choice == "12":
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
+>>>>>>> Stashed changes
                 self.show_system_info()
             elif choice == "0":
                 self.stop_scheduler()
