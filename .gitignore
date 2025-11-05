@@ -3,4 +3,7 @@ news_call.txt
 NewsCollectorDist/filters.json
 NewsCollectorDist/news_collector.exe
 NewsCollectorDist/sources.json
+<<<<<<< Updated upstream
 news_call.txt
+=======
+>>>>>>> Stashed changes
