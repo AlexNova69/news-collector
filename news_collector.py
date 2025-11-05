@@ -128,24 +128,63 @@ class NewsCollector:
         
     def load_sources(self):
         """Загрузка конфигурации источников из JSON файла"""
+        default_structure = {
+            "sources": {},
+            "settings": {
+                "auto_save_directory": None  # Папка для автоматического сохранения
+            }
+        }
+        
         try:
             with open(self.config_file, 'r', encoding='utf-8') as f:
-                return json.load(f)
+                loaded_data = json.load(f)
+            
+            # Объединяем с дефолтной структурой для обратной совместимости
+            if "settings" not in loaded_data:
+                loaded_data["settings"] = default_structure["settings"]
+            
+            # Сохраняем обновленную структуру
+            self.save_sources(loaded_data)
+            
+            return loaded_data
+            
         except FileNotFoundError:
             print(f"ℹ️ Файл конфигурации {self.config_file} не найден, создан новый")
-            return {"sources": {}}
+            self.save_sources(default_structure)
+            return default_structure
         except Exception as e:
             print(f"❌ Ошибка загрузки конфигурации: {e}")
-            return {"sources": {}}
+            return default_structure
     
-    def save_sources(self):
+    def save_sources(self, data=None):
         """Сохранение конфигурации источников в JSON файл"""
+        if data is None:
+            data = self.sources
+            
         try:
             os.makedirs(os.path.dirname(self.config_file) if os.path.dirname(self.config_file) else '.', exist_ok=True)
             with open(self.config_file, 'w', encoding='utf-8') as f:
-                json.dump(self.sources, f, ensure_ascii=False, indent=2)
+                json.dump(data, f, ensure_ascii=False, indent=2)
         except Exception as e:
             print(f"❌ Ошибка сохранения конфигурации: {e}")
+    
+    def set_auto_save_directory(self, directory):
+        """Установка папки для автоматического сохранения"""
+        if directory and os.path.exists(directory):
+            self.sources["settings"]["auto_save_directory"] = directory
+            self.save_sources()
+            print(f"✅ Папка для автоматического сохранения установлена: {directory}")
+            return True
+        else:
+            print("❌ Указанная папка не существует!")
+            return False
+    
+    def get_auto_save_directory(self):
+        """Получение папки для автоматического сохранения"""
+        auto_dir = self.sources["settings"].get("auto_save_directory")
+        if auto_dir and os.path.exists(auto_dir):
+            return auto_dir
+        return get_base_path()  # По умолчанию - папка программы
     
     def add_source(self, name, url, max_news=5):
         """Добавление нового источника новостей"""
@@ -677,6 +716,66 @@ class NewsApp:
         """Ожидание нажатия Enter"""
         input("\n↵ Нажмите Enter для продолжения...")
     
+<<<<<<< Updated upstream
+=======
+    def choose_directory(self):
+        """Выбор каталога для сохранения через диалоговое окно"""
+        try:
+            # Создаем скрытое окно Tkinter
+            root = tk.Tk()
+            root.withdraw()  # Скрываем главное окно
+            
+            # Открываем диалог выбора папки
+            directory = filedialog.askdirectory(
+                title="Выберите папку для сохранения новостей",
+                initialdir=get_base_path()
+            )
+            
+            root.destroy()
+            
+            if directory:
+                print(f"📁 Выбрана папка: {directory}")
+                return directory
+            else:
+                print("ℹ️  Используется папка программы")
+                return None
+                
+        except Exception as e:
+            print(f"❌ Ошибка при выборе папки: {e}")
+            print("ℹ️  Используется папка программы")
+            return None
+    
+    def setup_auto_save_directory(self):
+        """Настройка папки для автоматического сохранения"""
+        self.print_header()
+        print("--- НАСТРОЙКА ПАПКИ ДЛЯ АВТОМАТИЧЕСКОГО СОХРАНЕНИЯ ---")
+        
+        current_dir = self.collector.get_auto_save_directory()
+        print(f"📁 Текущая папка для автоматического сохранения: {current_dir}")
+        
+        print("\nВыберите действие:")
+        print("1. 📁 Выбрать другую папку")
+        print("2. 🔄 Сбросить на папку программы")
+        print("0. ↩️  Назад")
+        
+        choice = input("Выберите вариант (0-2): ").strip()
+        
+        if choice == "1":
+            directory = self.choose_directory()
+            if directory:
+                if self.collector.set_auto_save_directory(directory):
+                    print(f"✅ Папка для автоматического сохранения установлена: {directory}")
+        elif choice == "2":
+            if self.collector.set_auto_save_directory(None):
+                print("✅ Папка для автоматического сохранения сброшена на папку программы")
+        elif choice == "0":
+            return
+        else:
+            print("❌ Неверный выбор!")
+        
+        self.wait_for_enter()
+    
+>>>>>>> Stashed changes
     def add_source_interface(self):
         """Интерфейс добавления источника"""
         self.print_header()
@@ -825,7 +924,11 @@ class NewsApp:
             self.wait_for_enter()
             return
         
-        print("Выберите интервал автоматического сбора:")
+        # Показываем текущую папку для автоматического сохранения
+        auto_save_dir = self.collector.get_auto_save_directory()
+        print(f"📁 Текущая папка для автоматического сохранения: {auto_save_dir}")
+        
+        print("\nВыберите интервал автоматического сбора:")
         print("1. Каждые 30 минут")
         print("2. Каждый час")
         print("3. Каждые 2 часа")
@@ -878,11 +981,14 @@ class NewsApp:
             news = self.collector.collect_news()
             if news:
                 filename = "news_call.txt"
+                # Используем папку для автоматического сохранения
+                auto_save_dir = self.collector.get_auto_save_directory()
                 result_file = self.exporter.export_to_txt(
                     news, 
                     self.collector.sources["sources"], 
                     filename, 
-                    is_scheduled=True
+                    is_scheduled=True,
+                    directory=auto_save_dir
                 )
                 if result_file:
                     print(f"📁 Файл обновлен: {result_file}")
@@ -957,6 +1063,10 @@ class NewsApp:
         print(f"📰 Количество источников: {len(self.collector.sources['sources'])}")
         print(f"⏰ Планировщик: {'✅ Активен' if self.scheduler_running else '❌ Остановлен'}")
         
+        # Папка для автоматического сохранения
+        auto_save_dir = self.collector.get_auto_save_directory()
+        print(f"📁 Папка автосохранения: {auto_save_dir}")
+        
         # Проверяем наличие файлов
         files_to_check = ["sources.json", "news_call.txt"]
         for file in files_to_check:
@@ -979,6 +1089,7 @@ class NewsApp:
             print("2. ➕ Добавить источник")
             print("3. ✏️  Редактировать источник")
             print("4. ❌ Удалить источник")
+<<<<<<< Updated upstream
             print("5. 📡 Собрать и экспортировать новости")
             print("6. ⚙️  Настроить автоматический сбор")
             print("7. 🔄 Запустить фоновый планировщик")
@@ -989,6 +1100,20 @@ class NewsApp:
             print("-" * 70)
             
             choice = input("Выберите действие (0-10): ").strip()
+=======
+            print("5. 🛠️  Управление фильтрами")
+            print("6. 📡 Собрать и экспортировать новости")
+            print("7. ⚙️  Настроить автоматический сбор")
+            print("8. 🔄 Запустить фоновый планировщик")
+            print("9. ⏹️  Остановить планировщик")
+            print("10. 🚀 Быстрый старт (добавить примеры источников)")
+            print("11. 📁 Настроить папку автосохранения")
+            print("12. ℹ️  Системная информация")
+            print("0. 🚪 Выход")
+            print("-" * 70)
+            
+            choice = input("Выберите действие (0-12): ").strip()
+>>>>>>> Stashed changes
             
             if choice == "1":
                 self.print_header()
@@ -1011,7 +1136,13 @@ class NewsApp:
                 self.wait_for_enter()
             elif choice == "9":
                 self.quick_start()
+<<<<<<< Updated upstream
             elif choice == "10":
+=======
+            elif choice == "11":
+                self.setup_auto_save_directory()
+            elif choice == "12":
+>>>>>>> Stashed changes
                 self.show_system_info()
             elif choice == "0":
                 self.stop_scheduler()

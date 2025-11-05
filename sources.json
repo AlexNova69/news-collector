@@ -5,11 +5,6 @@
       "max_news": 5,
       "selector": "auto"
     },
-    "fontanka": {
-      "url": "https://fontanka.ru",
-      "max_news": 5,
-      "selector": "auto"
-    },
     "online47.ru": {
       "url": "https://online47.ru",
       "max_news": 5
@@ -21,6 +16,20 @@
     "admtih.ru": {
       "url": "https://admtih.ru",
       "max_news": 5
+<<<<<<< Updated upstream
+=======
+    },
+    "78.ru": {
+      "url": "https://78.ru",
+      "max_news": 5
+    },
+    "fontanka.ru": {
+      "url": "https://fontanka.ru",
+      "max_news": 5
+>>>>>>> Stashed changes
     }
+  },
+  "settings": {
+    "auto_save_directory": "D:/news_collector/NewsCollectorDist"
   }
 }

@@ -1,0 +1,6 @@
+dist/news_collector.exe
+news_call.txt
+NewsCollectorDist/filters.json
+NewsCollectorDist/news_collector.exe
+NewsCollectorDist/sources.json
+news_call.txt
