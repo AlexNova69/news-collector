@@ -26,6 +26,7 @@
     }
   },
   "settings": {
-    "auto_save_directory": "Z:/Beguchka/Text"
+    "auto_save_directory": "Z:/Beguchka/Text",
+    "news_length_range": "150-200"
   }
 }
