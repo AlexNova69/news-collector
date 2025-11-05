@@ -876,6 +876,9 @@ class NewsApp:
         self.wait_for_enter()
     
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
@@ -1335,6 +1338,9 @@ class NewsApp:
             print("-" * 70)
             
             choice = input("Выберите действие (0-12): ").strip()
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
             
             if choice == "1":
@@ -1366,6 +1372,9 @@ class NewsApp:
             elif choice == "11":
                 self.setup_auto_save_directory()
             elif choice == "12":
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
                 self.show_system_info()
             elif choice == "0":
