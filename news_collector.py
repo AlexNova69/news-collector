@@ -35,6 +35,120 @@ def get_resource_path(relative_path):
     
     return os.path.join(base_path, relative_path)
 
+class FilterManager:
+    """Менеджер фильтров для очистки новостей"""
+    
+    def __init__(self, config_file=None):
+        if config_file is None:
+            self.config_file = os.path.join(get_base_path(), "filters.json")
+        else:
+            self.config_file = config_file
+        self.filters = self.load_filters()
+    
+    def load_filters(self):
+        """Загрузка фильтров из JSON файла"""
+        try:
+            with open(self.config_file, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except FileNotFoundError:
+            print(f"ℹ️ Файл фильтров {self.config_file} не найден, создан новый")
+            default_filters = {
+                "global_filters": {
+                    "stop_words": [],
+                    "stop_symbols": [],
+                    "regex_patterns": []
+                },
+                "source_specific_filters": {}
+            }
+            self.save_filters(default_filters)
+            return default_filters
+        except Exception as e:
+            print(f"❌ Ошибка загрузки фильтров: {e}")
+            return {"global_filters": {}, "source_specific_filters": {}}
+    
+    def save_filters(self, filters=None):
+        """Сохранение фильтров в JSON файл"""
+        if filters is None:
+            filters = self.filters
+        try:
+            os.makedirs(os.path.dirname(self.config_file) if os.path.dirname(self.config_file) else '.', exist_ok=True)
+            with open(self.config_file, 'w', encoding='utf-8') as f:
+                json.dump(filters, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"❌ Ошибка сохранения фильтров: {e}")
+    
+    def add_global_stop_word(self, word):
+        """Добавление стоп-слова в глобальные фильтры"""
+        if word not in self.filters["global_filters"]["stop_words"]:
+            self.filters["global_filters"]["stop_words"].append(word)
+            self.save_filters()
+            print(f"✅ Стоп-слово '{word}' добавлено в глобальные фильтры")
+    
+    def add_source_stop_word(self, source_name, word):
+        """Добавление стоп-слова для конкретного источника"""
+        if source_name not in self.filters["source_specific_filters"]:
+            self.filters["source_specific_filters"][source_name] = {
+                "stop_words": [],
+                "stop_symbols": [],
+                "regex_patterns": []
+            }
+        
+        if word not in self.filters["source_specific_filters"][source_name]["stop_words"]:
+            self.filters["source_specific_filters"][source_name]["stop_words"].append(word)
+            self.save_filters()
+            print(f"✅ Стоп-слово '{word}' добавлено для источника '{source_name}'")
+    
+    def apply_filters(self, text, source_name=None):
+        """Применение всех фильтров к тексту"""
+        if not text:
+            return text
+        
+        # Применяем глобальные фильтры
+        filtered_text = self.apply_global_filters(text)
+        
+        # Применяем специфичные для источника фильтры
+        if source_name:
+            filtered_text = self.apply_source_filters(filtered_text, source_name)
+        
+        return filtered_text
+    
+    def apply_global_filters(self, text):
+        """Применение глобальных фильтров"""
+        # Стоп-слова
+        for word in self.filters["global_filters"]["stop_words"]:
+            text = re.sub(re.escape(word), '', text, flags=re.IGNORECASE)
+        
+        # Стоп-символы
+        for symbol in self.filters["global_filters"]["stop_symbols"]:
+            text = text.replace(symbol, '')
+        
+        # Регулярные выражения
+        for pattern in self.filters["global_filters"]["regex_patterns"]:
+            text = re.sub(pattern, '', text)
+        
+        return text.strip()
+    
+    def apply_source_filters(self, text, source_name):
+        """Применение фильтров для конкретного источника"""
+        if source_name not in self.filters["source_specific_filters"]:
+            return text
+        
+        source_filters = self.filters["source_specific_filters"][source_name]
+        
+        # Стоп-слова
+        for word in source_filters["stop_words"]:
+            text = re.sub(re.escape(word), '', text, flags=re.IGNORECASE)
+        
+        # Стоп-символы
+        for symbol in source_filters["stop_symbols"]:
+            text = text.replace(symbol, '')
+        
+        # Регулярные выражения
+        for pattern in source_filters["regex_patterns"]:
+            text = re.sub(pattern, '', text)
+        
+        return text.strip()
+
 class SimpleSummarizer:
     """Упрощенный AI-агент для пересказа новостей"""
     
@@ -125,6 +239,7 @@ class NewsCollector:
             self.config_file = config_file
         self.sources = self.load_sources()
         self.summarizer = SimpleSummarizer()
+        self.filter_manager = FilterManager()  # Добавляем менеджер фильтров
         
     def load_sources(self):
         """Загрузка конфигурации источников из JSON файла"""
@@ -320,8 +435,8 @@ class NewsCollector:
         
         return unique_news
     
-    def clean_news_text(self, text):
-        """Тщательная очистка текста новости"""
+    def clean_news_text(self, text, source_name=None):
+        """Тщательная очистка текста новости с использованием фильтров"""
         if not text:
             return ""
         
@@ -329,49 +444,32 @@ class NewsCollector:
         text = re.sub(r'\s+', ' ', text)
         text = text.strip()
         
-        # УСИЛЕННАЯ ОЧИСТКА ВРЕМЕННЫХ МЕТОК В НАЧАЛЕ ТЕКСТА
-        # Удаляем время в формате HH:MM в начале текста (10:48, 10:38 и т.д.)
+        # БАЗОВАЯ ОЧИСТКА (оставляем только самое необходимое)
+        # Удаляем время в формате HH:MM в начале текста
         text = re.sub(r'^\d{1,2}:\d{2}\s*', '', text)
-        
-        # Удаляем время с пробелами вокруг двоеточия
         text = re.sub(r'^\d{1,2}\s*:\s*\d{2}\s*', '', text)
         
-        # Удаляем даты в формате MMDD в начале текста (0311, 0215 и т.д.)
+        # Удаляем даты в формате MMDD в начале текста
         text = re.sub(r'^\d{3,4}', '', text)
-        
-        # Удаляем категории в начале текста
-        text = re.sub(r'^(Чтиво|Происшествия|Образ жизни|Общество|Бизнес|На правах бизнеса|Афиша Plus|Доброе дело|Город|Лента добра|Афиша|ПроисшествияКрипта|Образ жизниОбщество|ОбществоПадали|Образ жизниУлица)\s*', '', text)
-        
-        # Удаляем временные метки в конце (более агрессивно)
-        text = re.sub(r'\s*\d{1,2}\.\d{2}\.\s*$', '', text)
-        text = re.sub(r'[\s\d]*\d{1,2}\s*час[а]?[\s\d]*$', '', text)
-        text = re.sub(r'[\s\d:-]+\s*$', '', text)
-        
-        # Удаляем технические символы
-        text = re.sub(r'[^\w\s\.\,\!\?\-\:\(\)]', '', text)
         
         # Восстанавливаем пробелы
         text = re.sub(r'([а-яё])([А-ЯЁ])', r'\1 \2', text)
         text = re.sub(r'([.!?])([А-ЯЁ])', r'\1 \2', text)
-        text = re.sub(r'([,])([а-яё])', r'\1 \2', text)
         
         # Удаляем повторяющиеся точки и запятые
         text = re.sub(r'\.{2,}', '.', text)
         text = re.sub(r',{2,}', ',', text)
         
-        # Удаляем даты и числа в скобках
-        text = re.sub(r'\s*\(\s*\d+\s*\)\s*', ' ', text)
-        
-        # Удаляем лишние слова в начале и конце
-        text = re.sub(r'^(Новость|Новости|Статья|Статьи|Читать|Подробнее)\s*', '', text)
-        
         # Финальная очистка пробелов
         text = re.sub(r'\s+', ' ', text)
         text = text.strip()
         
+        # ПРИМЕНЯЕМ ФИЛЬТРЫ ИЗ ВНЕШНЕГО ФАЙЛА
+        text = self.filter_manager.apply_filters(text, source_name)
+        
         return text
     
-    def extract_clean_news_text(self, element):
+    def extract_clean_news_text(self, element, source_name=None):
         """Извлечение и очистка текста новости из элемента"""
         try:
             # Удаляем ненужные элементы
@@ -453,7 +551,7 @@ class NewsCollector:
                         used_hashes.add(candidate_hash)
                 
                 if unique_candidates:
-                    return self.clean_news_text(unique_candidates[0])
+                    return self.clean_news_text(unique_candidates[0], source_name)
                     
             return None
             
@@ -503,12 +601,12 @@ class NewsCollector:
             
         return True
     
-    def process_news_text(self, text):
+    def process_news_text(self, text, source_name=None):
         """Обработка текста новости с помощью AI-агента"""
         # ПРЕДВАРИТЕЛЬНАЯ ОЧИСТКА ОТ ДАТ И ВРЕМЕНИ
         text = re.sub(r'^\d{1,2}:\d{2}\s*', '', text)
         text = re.sub(r'^\d{3,4}', '', text)
-        cleaned_text = self.clean_news_text(text)
+        cleaned_text = self.clean_news_text(text, source_name)
         summarized_text = self.summarizer.summarize_text(cleaned_text, 200)
         return summarized_text
     
@@ -559,14 +657,14 @@ class NewsCollector:
                 if len(news_items) >= config["max_news"]:
                     break
                         
-                news_text = self.extract_clean_news_text(element)
+                news_text = self.extract_clean_news_text(element, source_name)
                 if news_text:
                     # ДОПОЛНИТЕЛЬНАЯ ОЧИСТКА ОТ ДАТ И ВРЕМЕНИ ПЕРЕД ОБРАБОТКОЙ
                     news_text = re.sub(r'^\d{1,2}:\d{2}\s*', '', news_text)
                     news_text = re.sub(r'^\d{3,4}', '', news_text)
                     
                     # Обрабатываем AI-агентом
-                    processed_text = self.process_news_text(news_text)
+                    processed_text = self.process_news_text(news_text, source_name)
                     
                     if (processed_text and len(processed_text) >= 40 and 
                         len(processed_text) <= 200):
@@ -601,6 +699,7 @@ class NewsCollector:
         print("🤖 Используется упрощенный AI для пересказа новостей")
         print("🔍 Усиленная борьба с дубликатами...")
         print("🗑️  Агрессивное удаление дат и временных меток...")
+        print("🛠️  Применение фильтров из filters.json...")
         
         for source_name, config in self.sources["sources"].items():
             print(f"\n📡 Сбор с {source_name}...")
@@ -709,6 +808,7 @@ class NewsApp:
         print(f"🤖 РЕЖИМ: {mode} | УПРОЩЕННЫЙ AI ДЛЯ ПЕРЕСКАЗА НОВОСТЕЙ")
         print("📝 ФОРМАТ: КАЖДАЯ НОВОСТЬ - ОДНА СТРОКА ДО 200 СИМВОЛОВ")
         print("📰 ГРУППИРОВКА ПО ИСТОЧНИКАМ С НАЗВАНИЯМИ")
+        print("🛠️  ВНЕШНИЕ ФИЛЬТРЫ: filters.json")
         print("🚫 БЕЗ ЗАВИСИМОСТИ ОТ ВНЕШНИХ API")
         print("-" * 70)
     
@@ -865,6 +965,120 @@ class NewsApp:
                 print("❌ Неверный выбор!")
         except (ValueError, IndexError):
             print("❌ Неверный ввод!")
+        
+        self.wait_for_enter()
+    
+    def manage_filters_interface(self):
+        """Интерфейс управления фильтрами"""
+        self.print_header()
+        print("--- УПРАВЛЕНИЕ ФИЛЬТРАМИ ---")
+        
+        print("1. 📝 Добавить глобальное стоп-слово")
+        print("2. 📝 Добавить стоп-слово для источника")
+        print("3. 📋 Показать текущие фильтры")
+        print("4. 📁 Открыть файл фильтров вручную")
+        print("0. ↩️  Назад")
+        
+        choice = input("Выберите действие (0-4): ").strip()
+        
+        if choice == "1":
+            self.add_global_stop_word()
+        elif choice == "2":
+            self.add_source_stop_word()
+        elif choice == "3":
+            self.show_filters()
+        elif choice == "4":
+            self.open_filters_file()
+        elif choice == "0":
+            return
+        else:
+            print("❌ Неверный выбор!")
+            self.wait_for_enter()
+    
+    def add_global_stop_word(self):
+        """Добавление глобального стоп-слова"""
+        self.print_header()
+        print("--- ДОБАВЛЕНИЕ ГЛОБАЛЬНОГО СТОП-СЛОВА ---")
+        
+        word = input("Введите стоп-слово или фразу для удаления: ").strip()
+        if word:
+            self.collector.filter_manager.add_global_stop_word(word)
+            print(f"✅ Слово '{word}' будет удаляться из всех новостей")
+        else:
+            print("❌ Слово не может быть пустым!")
+        
+        self.wait_for_enter()
+    
+    def add_source_stop_word(self):
+        """Добавление стоп-слова для конкретного источника"""
+        self.print_header()
+        print("--- ДОБАВЛЕНИЕ СТОП-СЛОВА ДЛЯ ИСТОЧНИКА ---")
+        
+        sources = list(self.collector.sources["sources"].keys())
+        if not sources:
+            print("📭 Нет добавленных источников")
+            self.wait_for_enter()
+            return
+        
+        print("📋 Список источников:")
+        for i, source_name in enumerate(sources, 1):
+            print(f"  {i}. {source_name}")
+        
+        try:
+            choice = int(input(f"Выберите источник (1-{len(sources)}): "))
+            if 1 <= choice <= len(sources):
+                source_name = sources[choice - 1]
+                word = input("Введите стоп-слово или фразу для удаления: ").strip()
+                if word:
+                    self.collector.filter_manager.add_source_stop_word(source_name, word)
+                    print(f"✅ Слово '{word}' будет удаляться из новостей источника '{source_name}'")
+                else:
+                    print("❌ Слово не может быть пустым!")
+            else:
+                print("❌ Неверный выбор!")
+        except (ValueError, IndexError):
+            print("❌ Неверный ввод!")
+        
+        self.wait_for_enter()
+    
+    def show_filters(self):
+        """Показать текущие фильтры"""
+        self.print_header()
+        print("--- ТЕКУЩИЕ ФИЛЬТРЫ ---")
+        
+        filters = self.collector.filter_manager.filters
+        
+        print("\n🌍 ГЛОБАЛЬНЫЕ ФИЛЬТРЫ:")
+        print(f"   Стоп-слова: {len(filters['global_filters']['stop_words'])}")
+        for word in filters['global_filters']['stop_words']:
+            print(f"     - {word}")
+        
+        print(f"   Стоп-символы: {len(filters['global_filters']['stop_symbols'])}")
+        for symbol in filters['global_filters']['stop_symbols']:
+            print(f"     - {symbol}")
+        
+        print(f"   Regex-паттерны: {len(filters['global_filters']['regex_patterns'])}")
+        
+        print("\n📰 ФИЛЬТРЫ ПО ИСТОЧНИКАМ:")
+        for source_name, source_filters in filters['source_specific_filters'].items():
+            print(f"   {source_name}: {len(source_filters['stop_words'])} стоп-слов")
+            for word in source_filters['stop_words']:
+                print(f"     - {word}")
+        
+        self.wait_for_enter()
+    
+    def open_filters_file(self):
+        """Открыть файл фильтров в блокноте"""
+        filters_path = os.path.join(get_base_path(), "filters.json")
+        try:
+            if os.name == 'nt':  # Windows
+                os.system(f'notepad "{filters_path}"')
+            else:
+                # Для Linux/Mac
+                subprocess.call(['xdg-open', filters_path])
+            print("✅ Файл filters.json открыт для редактирования")
+        except Exception as e:
+            print(f"❌ Не удалось открыть файл: {e}")
         
         self.wait_for_enter()
     
@@ -1068,7 +1282,7 @@ class NewsApp:
         print(f"📁 Папка автосохранения: {auto_save_dir}")
         
         # Проверяем наличие файлов
-        files_to_check = ["sources.json", "news_call.txt"]
+        files_to_check = ["sources.json", "news_call.txt", "filters.json"]
         for file in files_to_check:
             file_path = os.path.join(get_base_path(), file)
             if os.path.exists(file_path):
@@ -1076,6 +1290,11 @@ class NewsApp:
                 print(f"📄 {file}: {size} байт")
             else:
                 print(f"📄 {file}: ❌ Не найден")
+        
+        # Информация о фильтрах
+        filters = self.collector.filter_manager.filters
+        print(f"🛠️  Глобальных фильтров: {len(filters['global_filters']['stop_words'])}")
+        print(f"📰 Источников с фильтрами: {len(filters['source_specific_filters'])}")
         
         self.wait_for_enter()
     
@@ -1089,7 +1308,6 @@ class NewsApp:
             print("2. ➕ Добавить источник")
             print("3. ✏️  Редактировать источник")
             print("4. ❌ Удалить источник")
-<<<<<<< Updated upstream
             print("5. 📡 Собрать и экспортировать новости")
             print("6. ⚙️  Настроить автоматический сбор")
             print("7. 🔄 Запустить фоновый планировщик")
@@ -1100,20 +1318,6 @@ class NewsApp:
             print("-" * 70)
             
             choice = input("Выберите действие (0-10): ").strip()
-=======
-            print("5. 🛠️  Управление фильтрами")
-            print("6. 📡 Собрать и экспортировать новости")
-            print("7. ⚙️  Настроить автоматический сбор")
-            print("8. 🔄 Запустить фоновый планировщик")
-            print("9. ⏹️  Остановить планировщик")
-            print("10. 🚀 Быстрый старт (добавить примеры источников)")
-            print("11. 📁 Настроить папку автосохранения")
-            print("12. ℹ️  Системная информация")
-            print("0. 🚪 Выход")
-            print("-" * 70)
-            
-            choice = input("Выберите действие (0-12): ").strip()
->>>>>>> Stashed changes
             
             if choice == "1":
                 self.print_header()
@@ -1125,24 +1329,20 @@ class NewsApp:
                 self.edit_source_interface()
             elif choice == "4":
                 self.remove_source_interface()
-            elif choice == "5":
-                self.collect_and_export()
+            elif choice == "5":  # НОВЫЙ ПУНКТ
+                self.manage_filters_interface()
             elif choice == "6":
-                self.setup_schedule()
+                self.collect_and_export()
             elif choice == "7":
-                self.start_scheduler()
+                self.setup_schedule()
             elif choice == "8":
+                self.start_scheduler()
+            elif choice == "9":
                 self.stop_scheduler()
                 self.wait_for_enter()
             elif choice == "9":
                 self.quick_start()
-<<<<<<< Updated upstream
             elif choice == "10":
-=======
-            elif choice == "11":
-                self.setup_auto_save_directory()
-            elif choice == "12":
->>>>>>> Stashed changes
                 self.show_system_info()
             elif choice == "0":
                 self.stop_scheduler()
@@ -1156,6 +1356,7 @@ def main():
     """Основная функция запуска приложения"""
     print("🚀 Загрузка News Collector System...")
     print("💡 Самодостаточное Windows приложение...")
+    print("🛠️  Система внешних фильтров...")
     time.sleep(1)
     
     app = NewsApp()
