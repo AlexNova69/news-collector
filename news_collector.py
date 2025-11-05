@@ -13,6 +13,8 @@ from difflib import SequenceMatcher
 import hashlib
 import subprocess
 import webbrowser
+import tkinter as tk
+from tkinter import filedialog
 
 # Определяем, запущены ли мы как EXE
 def is_frozen():
@@ -47,24 +49,51 @@ class FilterManager:
     
     def load_filters(self):
         """Загрузка фильтров из JSON файла"""
+        default_filters = {
+            "global_filters": {
+                "stop_words": [],
+                "stop_symbols": [],
+                "regex_patterns": []
+            },
+            "source_specific_filters": {}
+        }
+        
         try:
             with open(self.config_file, 'r', encoding='utf-8') as f:
-                return json.load(f)
+                loaded_filters = json.load(f)
+            
+            # Рекурсивно объединяем с дефолтной структурой
+            filters = self.deep_merge(default_filters, loaded_filters)
+            
+            # Сохраняем исправленную версию (на случай если структура была неполной)
+            self.save_filters(filters)
+            
+            return filters
+            
         except FileNotFoundError:
             print(f"ℹ️ Файл фильтров {self.config_file} не найден, создан новый")
-            default_filters = {
-                "global_filters": {
-                    "stop_words": [],
-                    "stop_symbols": [],
-                    "regex_patterns": []
-                },
-                "source_specific_filters": {}
-            }
             self.save_filters(default_filters)
             return default_filters
         except Exception as e:
             print(f"❌ Ошибка загрузки фильтров: {e}")
-            return {"global_filters": {}, "source_specific_filters": {}}
+            print("🔄 Используется структура по умолчанию")
+            self.save_filters(default_filters)
+            return default_filters
+    
+    def deep_merge(self, default, user):
+        """Рекурсивное объединение словарей"""
+        result = default.copy()
+        
+        for key, value in user.items():
+            if key in result:
+                if isinstance(result[key], dict) and isinstance(value, dict):
+                    result[key] = self.deep_merge(result[key], value)
+                else:
+                    result[key] = value
+            else:
+                result[key] = value
+                
+        return result
     
     def save_filters(self, filters=None):
         """Сохранение фильтров в JSON файл"""
@@ -243,63 +272,24 @@ class NewsCollector:
         
     def load_sources(self):
         """Загрузка конфигурации источников из JSON файла"""
-        default_structure = {
-            "sources": {},
-            "settings": {
-                "auto_save_directory": None  # Папка для автоматического сохранения
-            }
-        }
-        
         try:
             with open(self.config_file, 'r', encoding='utf-8') as f:
-                loaded_data = json.load(f)
-            
-            # Объединяем с дефолтной структурой для обратной совместимости
-            if "settings" not in loaded_data:
-                loaded_data["settings"] = default_structure["settings"]
-            
-            # Сохраняем обновленную структуру
-            self.save_sources(loaded_data)
-            
-            return loaded_data
-            
+                return json.load(f)
         except FileNotFoundError:
             print(f"ℹ️ Файл конфигурации {self.config_file} не найден, создан новый")
-            self.save_sources(default_structure)
-            return default_structure
+            return {"sources": {}}
         except Exception as e:
             print(f"❌ Ошибка загрузки конфигурации: {e}")
-            return default_structure
+            return {"sources": {}}
     
-    def save_sources(self, data=None):
+    def save_sources(self):
         """Сохранение конфигурации источников в JSON файл"""
-        if data is None:
-            data = self.sources
-            
         try:
             os.makedirs(os.path.dirname(self.config_file) if os.path.dirname(self.config_file) else '.', exist_ok=True)
             with open(self.config_file, 'w', encoding='utf-8') as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
+                json.dump(self.sources, f, ensure_ascii=False, indent=2)
         except Exception as e:
             print(f"❌ Ошибка сохранения конфигурации: {e}")
-    
-    def set_auto_save_directory(self, directory):
-        """Установка папки для автоматического сохранения"""
-        if directory and os.path.exists(directory):
-            self.sources["settings"]["auto_save_directory"] = directory
-            self.save_sources()
-            print(f"✅ Папка для автоматического сохранения установлена: {directory}")
-            return True
-        else:
-            print("❌ Указанная папка не существует!")
-            return False
-    
-    def get_auto_save_directory(self):
-        """Получение папки для автоматического сохранения"""
-        auto_dir = self.sources["settings"].get("auto_save_directory")
-        if auto_dir and os.path.exists(auto_dir):
-            return auto_dir
-        return get_base_path()  # По умолчанию - папка программы
     
     def add_source(self, name, url, max_news=5):
         """Добавление нового источника новостей"""
@@ -725,23 +715,32 @@ class NewsExporter:
     """Экспорт новостей в файл для бегущей строки"""
     
     @staticmethod
-    def export_to_txt(news_items, sources_config, filename=None, is_scheduled=False):
+    def export_to_txt(news_items, sources_config, filename=None, is_scheduled=False, directory=None):
         """Экспорт новостей в текстовый файл с группировкой по источникам"""
         if not news_items:
             print("❌ Нет новостей для экспорта!")
             return None
             
+        # Определяем каталог для сохранения
+        if directory and os.path.exists(directory):
+            save_dir = directory
+        elif is_scheduled:
+            # В автоматическом режиме используем папку программы
+            save_dir = get_base_path()
+        else:
+            # В ручном режиме по умолчанию тоже папка программы
+            save_dir = get_base_path()
+        
         if not filename:
             if is_scheduled:
                 # В автоматическом режиме используем фиксированное имя
-                filename = os.path.join(get_base_path(), "news_call.txt")
+                filename = "news_call.txt"
             else:
                 # В ручном режиме используем timestamp
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename = os.path.join(get_base_path(), f"news_ticker_{timestamp}.txt")
-        else:
-            # Если указано имя файла, используем базовый путь
-            filename = os.path.join(get_base_path(), filename)
+                filename = f"news_ticker_{timestamp}.txt"
+        
+        filepath = os.path.join(save_dir, filename)
         
         try:
             # Группируем новости по источникам
@@ -753,7 +752,7 @@ class NewsExporter:
                 news_by_source[source].append(news)
             
             # Записываем в файл с группировкой по источникам
-            with open(filename, 'w', encoding='utf-8') as f:
+            with open(filepath, 'w', encoding='utf-8') as f:
                 # Проходим по источникам в порядке конфигурации
                 for source_name in sources_config.keys():
                     if source_name in news_by_source and news_by_source[source_name]:
@@ -770,9 +769,9 @@ class NewsExporter:
             avg_length = total_chars // len(news_items)
             
             if is_scheduled:
-                print(f"✅ Новости экспортированы в файл (авто-режим): {filename}")
+                print(f"✅ Новости экспортированы в файл (авто-режим): {filepath}")
             else:
-                print(f"✅ Новости экспортированы в файл: {filename}")
+                print(f"✅ Новости экспортированы в файл: {filepath}")
                 
             print(f"📊 Статистика обработки:")
             print(f"   📰 Количество новостей: {len(news_items)}")
@@ -780,7 +779,7 @@ class NewsExporter:
             print(f"   🎯 В диапазоне 150-200: {sum(1 for n in news_items if 150 <= n['length'] <= 200)}")
             print(f"   📐 Диапазон: {min(n['length'] for n in news_items)}-{max(n['length'] for n in news_items)} символов")
             
-            return filename
+            return filepath
         except Exception as e:
             print(f"❌ Ошибка при экспорте в файл: {e}")
             return None
@@ -816,8 +815,6 @@ class NewsApp:
         """Ожидание нажатия Enter"""
         input("\n↵ Нажмите Enter для продолжения...")
     
-<<<<<<< Updated upstream
-=======
     def choose_directory(self):
         """Выбор каталога для сохранения через диалоговое окно"""
         try:
@@ -845,37 +842,6 @@ class NewsApp:
             print("ℹ️  Используется папка программы")
             return None
     
-    def setup_auto_save_directory(self):
-        """Настройка папки для автоматического сохранения"""
-        self.print_header()
-        print("--- НАСТРОЙКА ПАПКИ ДЛЯ АВТОМАТИЧЕСКОГО СОХРАНЕНИЯ ---")
-        
-        current_dir = self.collector.get_auto_save_directory()
-        print(f"📁 Текущая папка для автоматического сохранения: {current_dir}")
-        
-        print("\nВыберите действие:")
-        print("1. 📁 Выбрать другую папку")
-        print("2. 🔄 Сбросить на папку программы")
-        print("0. ↩️  Назад")
-        
-        choice = input("Выберите вариант (0-2): ").strip()
-        
-        if choice == "1":
-            directory = self.choose_directory()
-            if directory:
-                if self.collector.set_auto_save_directory(directory):
-                    print(f"✅ Папка для автоматического сохранения установлена: {directory}")
-        elif choice == "2":
-            if self.collector.set_auto_save_directory(None):
-                print("✅ Папка для автоматического сохранения сброшена на папку программы")
-        elif choice == "0":
-            return
-        else:
-            print("❌ Неверный выбор!")
-        
-        self.wait_for_enter()
-    
->>>>>>> Stashed changes
     def add_source_interface(self):
         """Интерфейс добавления источника"""
         self.print_header()
@@ -1049,21 +1015,36 @@ class NewsApp:
         filters = self.collector.filter_manager.filters
         
         print("\n🌍 ГЛОБАЛЬНЫЕ ФИЛЬТРЫ:")
-        print(f"   Стоп-слова: {len(filters['global_filters']['stop_words'])}")
-        for word in filters['global_filters']['stop_words']:
+        
+        # Безопасное извлечение данных
+        global_filters = filters.get("global_filters", {})
+        stop_words = global_filters.get("stop_words", [])
+        stop_symbols = global_filters.get("stop_symbols", [])
+        regex_patterns = global_filters.get("regex_patterns", [])
+        
+        print(f"   Стоп-слова: {len(stop_words)}")
+        for word in stop_words:
             print(f"     - {word}")
         
-        print(f"   Стоп-символы: {len(filters['global_filters']['stop_symbols'])}")
-        for symbol in filters['global_filters']['stop_symbols']:
+        print(f"   Стоп-символы: {len(stop_symbols)}")
+        for symbol in stop_symbols:
             print(f"     - {symbol}")
         
-        print(f"   Regex-паттерны: {len(filters['global_filters']['regex_patterns'])}")
+        print(f"   Regex-паттерны: {len(regex_patterns)}")
+        for pattern in regex_patterns:
+            print(f"     - {pattern}")
         
         print("\n📰 ФИЛЬТРЫ ПО ИСТОЧНИКАМ:")
-        for source_name, source_filters in filters['source_specific_filters'].items():
-            print(f"   {source_name}: {len(source_filters['stop_words'])} стоп-слов")
-            for word in source_filters['stop_words']:
-                print(f"     - {word}")
+        source_filters = filters.get("source_specific_filters", {})
+        
+        if not source_filters:
+            print("   Нет специфичных фильтров для источников")
+        else:
+            for source_name, source_config in source_filters.items():
+                source_stop_words = source_config.get("stop_words", [])
+                print(f"   {source_name}: {len(source_stop_words)} стоп-слов")
+                for word in source_stop_words:
+                    print(f"     - {word}")
         
         self.wait_for_enter()
     
@@ -1083,7 +1064,7 @@ class NewsApp:
         self.wait_for_enter()
     
     def collect_and_export(self):
-        """Сбор и экспорт новостей"""
+        """Сбор и экспорт новостей с выбором каталога"""
         self.print_header()
         print("--- СБОР И ЭКСПОРТ НОВОСТЕЙ ---")
         
@@ -1117,11 +1098,23 @@ class NewsApp:
         else:
             filename = None
         
+        # Спрашиваем пользователя о выборе каталога
+        print("\n📁 Выбор папки для сохранения:")
+        print("1. Папка программы (по умолчанию)")
+        print("2. Выбрать другую папку")
+        
+        dir_choice = input("Выберите вариант (1-2): ").strip()
+        
+        directory = None
+        if dir_choice == "2":
+            directory = self.choose_directory()
+        
         result_file = self.exporter.export_to_txt(
             news, 
             self.collector.sources["sources"], 
             filename, 
-            is_scheduled=False
+            is_scheduled=False,
+            directory=directory
         )
         if result_file:
             print(f"📁 Файл сохранен: {result_file}")
@@ -1138,11 +1131,7 @@ class NewsApp:
             self.wait_for_enter()
             return
         
-        # Показываем текущую папку для автоматического сохранения
-        auto_save_dir = self.collector.get_auto_save_directory()
-        print(f"📁 Текущая папка для автоматического сохранения: {auto_save_dir}")
-        
-        print("\nВыберите интервал автоматического сбора:")
+        print("Выберите интервал автоматического сбора:")
         print("1. Каждые 30 минут")
         print("2. Каждый час")
         print("3. Каждые 2 часа")
@@ -1189,20 +1178,17 @@ class NewsApp:
         self.wait_for_enter()
     
     def scheduled_task(self):
-        """Задача для выполнения по расписания"""
+        """Задача для выполнения по расписанию"""
         print(f"\n⏰ [Расписание] Автоматический сбор новостей в {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         try:
             news = self.collector.collect_news()
             if news:
                 filename = "news_call.txt"
-                # Используем папку для автоматического сохранения
-                auto_save_dir = self.collector.get_auto_save_directory()
                 result_file = self.exporter.export_to_txt(
                     news, 
                     self.collector.sources["sources"], 
                     filename, 
-                    is_scheduled=True,
-                    directory=auto_save_dir
+                    is_scheduled=True
                 )
                 if result_file:
                     print(f"📁 Файл обновлен: {result_file}")
@@ -1277,10 +1263,6 @@ class NewsApp:
         print(f"📰 Количество источников: {len(self.collector.sources['sources'])}")
         print(f"⏰ Планировщик: {'✅ Активен' if self.scheduler_running else '❌ Остановлен'}")
         
-        # Папка для автоматического сохранения
-        auto_save_dir = self.collector.get_auto_save_directory()
-        print(f"📁 Папка автосохранения: {auto_save_dir}")
-        
         # Проверяем наличие файлов
         files_to_check = ["sources.json", "news_call.txt", "filters.json"]
         for file in files_to_check:
@@ -1293,8 +1275,12 @@ class NewsApp:
         
         # Информация о фильтрах
         filters = self.collector.filter_manager.filters
-        print(f"🛠️  Глобальных фильтров: {len(filters['global_filters']['stop_words'])}")
-        print(f"📰 Источников с фильтрами: {len(filters['source_specific_filters'])}")
+        global_filters = filters.get("global_filters", {})
+        stop_words_count = len(global_filters.get("stop_words", []))
+        source_filters_count = len(filters.get("source_specific_filters", {}))
+        
+        print(f"🛠️  Глобальных фильтров: {stop_words_count}")
+        print(f"📰 Источников с фильтрами: {source_filters_count}")
         
         self.wait_for_enter()
     
@@ -1308,16 +1294,17 @@ class NewsApp:
             print("2. ➕ Добавить источник")
             print("3. ✏️  Редактировать источник")
             print("4. ❌ Удалить источник")
-            print("5. 📡 Собрать и экспортировать новости")
-            print("6. ⚙️  Настроить автоматический сбор")
-            print("7. 🔄 Запустить фоновый планировщик")
-            print("8. ⏹️  Остановить планировщик")
-            print("9. 🚀 Быстрый старт (добавить примеры источников)")
-            print("10. ℹ️  Системная информация")
+            print("5. 🛠️  Управление фильтрами")
+            print("6. 📡 Собрать и экспортировать новости")
+            print("7. ⚙️  Настроить автоматический сбор")
+            print("8. 🔄 Запустить фоновый планировщик")
+            print("9. ⏹️  Остановить планировщик")
+            print("10. 🚀 Быстрый старт (добавить примеры источников)")
+            print("11. ℹ️  Системная информация")
             print("0. 🚪 Выход")
             print("-" * 70)
             
-            choice = input("Выберите действие (0-10): ").strip()
+            choice = input("Выберите действие (0-11): ").strip()
             
             if choice == "1":
                 self.print_header()
@@ -1329,7 +1316,7 @@ class NewsApp:
                 self.edit_source_interface()
             elif choice == "4":
                 self.remove_source_interface()
-            elif choice == "5":  # НОВЫЙ ПУНКТ
+            elif choice == "5":
                 self.manage_filters_interface()
             elif choice == "6":
                 self.collect_and_export()
@@ -1340,9 +1327,9 @@ class NewsApp:
             elif choice == "9":
                 self.stop_scheduler()
                 self.wait_for_enter()
-            elif choice == "9":
-                self.quick_start()
             elif choice == "10":
+                self.quick_start()
+            elif choice == "11":
                 self.show_system_info()
             elif choice == "0":
                 self.stop_scheduler()
