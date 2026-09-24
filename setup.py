@@ -7,7 +7,7 @@ with open('README.md', 'r', encoding='utf-8') as f:
 
 setup(
     name="news-collector",
-    version="1.0.0",
+    version="1.1.0",
     description="Автоматический сборщик новостей с AI-обработкой",
     long_description=long_description,
     long_description_content_type="text/markdown",

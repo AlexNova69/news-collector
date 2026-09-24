@@ -3,4 +3,7 @@ news_call.txt
 NewsCollectorDist/filters.json
 NewsCollectorDist/news_collector.exe
 NewsCollectorDist/sources.json
-news_call.txt
+__pycache__/
+*.pyc
+news_ticker*.txt
+shot-track-buddy/

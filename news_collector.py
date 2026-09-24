@@ -16,6 +16,9 @@ import webbrowser
 import tkinter as tk
 from tkinter import filedialog
 
+# Версия приложения
+APP_VERSION = "1.1.0"
+
 # Определяем, запущены ли мы как EXE
 def is_frozen():
     return getattr(sys, 'frozen', False)
@@ -53,7 +56,16 @@ class FilterManager:
             "global_filters": {
                 "stop_words": [],
                 "stop_symbols": [],
-                "regex_patterns": []
+                "regex_patterns": [],
+                # Шаблоны (regex) для удаления в начале текста: слова, время, даты
+                "start_patterns": [
+                    r"Сегодня,?\s*\d{1,2}:\d{2}",
+                    r"Вчера,?\s*\d{1,2}:\d{2}",
+                    r"\d{1,2}\s+[а-яё]+,?\s*\d{1,2}:\d{2}",
+                    r"\d{1,2}\.\d{1,2}\.\d{2,4},?\s*\d{1,2}:\d{2}"
+                ],
+                # Шаблоны (regex) для удаления в конце текста
+                "end_patterns": []
             },
             "source_specific_filters": {}
         }
@@ -119,7 +131,9 @@ class FilterManager:
             self.filters["source_specific_filters"][source_name] = {
                 "stop_words": [],
                 "stop_symbols": [],
-                "regex_patterns": []
+                "regex_patterns": [],
+                "start_patterns": [],
+                "end_patterns": []
             }
         
         if word not in self.filters["source_specific_filters"][source_name]["stop_words"]:
@@ -127,13 +141,50 @@ class FilterManager:
             self.save_filters()
             print(f"✅ Стоп-слово '{word}' добавлено для источника '{source_name}'")
     
+    def add_edge_pattern(self, pattern, position="start", source_name=None):
+        """Добавление шаблона удаления в начале ('start') или конце ('end') текста"""
+        key = "start_patterns" if position == "start" else "end_patterns"
+        
+        # Проверяем, что шаблон - валидный regex
+        try:
+            re.compile(pattern)
+        except re.error as e:
+            print(f"❌ Неверный regex-шаблон: {e}")
+            return False
+        
+        if source_name:
+            if source_name not in self.filters["source_specific_filters"]:
+                self.filters["source_specific_filters"][source_name] = {
+                    "stop_words": [],
+                    "stop_symbols": [],
+                    "regex_patterns": [],
+                    "start_patterns": [],
+                    "end_patterns": []
+                }
+            target = self.filters["source_specific_filters"][source_name][key]
+            where = f"для источника '{source_name}'"
+        else:
+            target = self.filters["global_filters"][key]
+            where = "глобально"
+        
+        if pattern not in target:
+            target.append(pattern)
+            self.save_filters()
+        
+        position_name = "начало" if position == "start" else "конец"
+        print(f"✅ Шаблон '{pattern}' (удаление в {position_name} текста) добавлен {where}")
+        return True
+    
     def apply_filters(self, text, source_name=None):
         """Применение всех фильтров к тексту"""
         if not text:
             return text
         
+        # Сначала удаляем даты/время/слова в начале и конце текста
+        filtered_text = self.apply_edge_filters(text, source_name)
+        
         # Применяем глобальные фильтры
-        filtered_text = self.apply_global_filters(text)
+        filtered_text = self.apply_global_filters(filtered_text)
         
         # Применяем специфичные для источника фильтры
         if source_name:
@@ -141,6 +192,59 @@ class FilterManager:
         
         return filtered_text
     
+    def apply_edge_filters(self, text, source_name=None):
+        """Удаление шаблонов (слова, время, даты) в начале и конце текста"""
+        groups = [self.filters.get("global_filters", {})]
+        
+        if source_name and source_name in self.filters.get("source_specific_filters", {}):
+            groups.append(self.filters["source_specific_filters"][source_name])
+        
+        for group in groups:
+            for pattern in group.get("start_patterns", []):
+                text = self._remove_edge_pattern(text, pattern, at_start=True)
+            for pattern in group.get("end_patterns", []):
+                text = self._remove_edge_pattern(text, pattern, at_start=False)
+        
+        # После удаления шаблона в начале мог остаться хвост вида '14:53' или '0925'
+        text = re.sub(r'^\d{1,2}:\d{2}\s*', '', text)
+        text = re.sub(r'^\d{3,4}', '', text)
+        
+        return text.strip()
+    
+    def _remove_edge_pattern(self, text, pattern, at_start):
+        """Удаление одного шаблона в начале или конце текста"""
+        try:
+            if at_start:
+                return re.sub(r'^(?:' + pattern + r')[\s,;:—-]*', '', text, flags=re.IGNORECASE)
+            else:
+                return re.sub(r'[\s,;:—-]*(?:' + pattern + r')$', '', text, flags=re.IGNORECASE)
+        except re.error:
+            print(f"⚠️ Неверный regex-шаблон, пропущен: {pattern}")
+            return text
+
+    @staticmethod
+    def build_edge_pattern(example):
+        """Превращает пример текста ('Вчера, 16:16') в regex-шаблон:
+        время, даты и числа обобщаются, остальное экранируется как есть"""
+        token_re = re.compile(r'(\d{1,2}:\d{2})|(\d{1,2}\.\d{1,2}\.\d{2,4})|(\d+)|(\s+)')
+        parts = []
+        pos = 0
+        for match in token_re.finditer(example):
+            if match.start() > pos:
+                parts.append(re.escape(example[pos:match.start()]))
+            if match.group(1):        # время 16:16
+                parts.append(r'\d{1,2}:\d{2}')
+            elif match.group(2):      # дата 25.09.2026
+                parts.append(r'\d{1,2}\.\d{1,2}\.\d{2,4}')
+            elif match.group(3):      # число
+                parts.append(r'\d+')
+            else:                     # пробелы
+                parts.append(r'\s*')
+            pos = match.end()
+        if pos < len(example):
+            parts.append(re.escape(example[pos:]))
+        return ''.join(parts)
+
     def apply_global_filters(self, text):
         """Применение глобальных фильтров"""
         # Стоп-слова
@@ -791,7 +895,7 @@ class NewsExporter:
                 news_by_source[source].append(news)
             
             # Записываем в файл с группировкой по источникам
-            with open(filepath, 'w', encoding='utf-8') as f:
+            with open(filepath, 'w', encoding='utf-16') as f:
                 # Проходим по источникам в порядке конфигурации
                 for source_name in sources_config.keys():
                     if source_name in news_by_source and news_by_source[source_name]:
@@ -840,7 +944,7 @@ class NewsApp:
         """Вывод заголовка приложения"""
         self.clear_screen()
         print("=" * 70)
-        print("           🎯 СИСТЕМА СБОРА НОВОСТЕЙ - WINDOWS ПРИЛОЖЕНИЕ")
+        print(f"      🎯 СИСТЕМА СБОРА НОВОСТЕЙ v{APP_VERSION} - WINDOWS ПРИЛОЖЕНИЕ")
         print("=" * 70)
         mode = "EXE" if is_frozen() else "Python"
         print(f"🤖 РЕЖИМ: {mode} | УПРОЩЕННЫЙ AI ДЛЯ ПЕРЕСКАЗА НОВОСТЕЙ")
@@ -1010,19 +1114,25 @@ class NewsApp:
         
         print("1. 📝 Добавить глобальное стоп-слово")
         print("2. 📝 Добавить стоп-слово для источника")
-        print("3. 📋 Показать текущие фильтры")
-        print("4. 📁 Открыть файл фильтров вручную")
+        print("3. ✂️  Добавить шаблон удаления в начале/конце текста (глобально)")
+        print("4. ✂️  Добавить шаблон удаления в начале/конце текста для источника")
+        print("5. 📋 Показать текущие фильтры")
+        print("6. 📁 Открыть файл фильтров вручную")
         print("0. ↩️  Назад")
         
-        choice = input("Выберите действие (0-4): ").strip()
+        choice = input("Выберите действие (0-6): ").strip()
         
         if choice == "1":
             self.add_global_stop_word()
         elif choice == "2":
             self.add_source_stop_word()
         elif choice == "3":
-            self.show_filters()
+            self.add_edge_pattern_interface()
         elif choice == "4":
+            self.add_edge_pattern_interface(for_source=True)
+        elif choice == "5":
+            self.show_filters()
+        elif choice == "6":
             self.open_filters_file()
         elif choice == "0":
             return
@@ -1076,6 +1186,64 @@ class NewsApp:
         
         self.wait_for_enter()
     
+    def add_edge_pattern_interface(self, for_source=False):
+        """Интерфейс добавления шаблона удаления в начале/конце текста"""
+        self.print_header()
+        print("--- ДОБАВЛЕНИЕ ШАБЛОНА УДАЛЕНИЯ В НАЧАЛЕ/КОНЦЕ ТЕКСТА ---")
+        
+        source_name = None
+        if for_source:
+            sources = list(self.collector.sources["sources"].keys())
+            if not sources:
+                print("📭 Нет добавленных источников")
+                self.wait_for_enter()
+                return
+            
+            print("📋 Список источников:")
+            for i, name in enumerate(sources, 1):
+                print(f"  {i}. {name}")
+            
+            try:
+                choice = int(input(f"Выберите источник (1-{len(sources)}): "))
+                if not (1 <= choice <= len(sources)):
+                    print("❌ Неверный выбор!")
+                    self.wait_for_enter()
+                    return
+                source_name = sources[choice - 1]
+            except ValueError:
+                print("❌ Неверный ввод!")
+                self.wait_for_enter()
+                return
+        
+        print("\nВведите текст, который нужно удалять - обычными словами, без regex.")
+        print("  Время, даты и числа система обобщит автоматически:")
+        print("    'Вчера, 16:16'   - удалит 'Вчера, 16:16', 'Вчера, 14:53' и т.д.")
+        print("    'Сегодня, 09:30' - удалит 'Сегодня' с любым временем")
+        print("    '25.09.2026'     - удалит любую дату такого вида")
+        
+        position = input("\nГде удалять: 1 - в начале текста, 2 - в конце текста (1-2): ").strip()
+        if position not in ("1", "2"):
+            print("❌ Неверный выбор!")
+            self.wait_for_enter()
+            return
+        
+        example = input("Введите текст для удаления: ").strip()
+        if not example:
+            print("❌ Текст не может быть пустым!")
+            self.wait_for_enter()
+            return
+        
+        pattern = FilterManager.build_edge_pattern(example)
+        print(f"🧠 Система создала шаблон: {pattern}")
+        
+        self.collector.filter_manager.add_edge_pattern(
+            pattern,
+            "start" if position == "1" else "end",
+            source_name
+        )
+        
+        self.wait_for_enter()
+    
     def show_filters(self):
         """Показать текущие фильтры"""
         self.print_header()
@@ -1103,6 +1271,17 @@ class NewsApp:
         for pattern in regex_patterns:
             print(f"     - {pattern}")
         
+        start_patterns = global_filters.get("start_patterns", [])
+        end_patterns = global_filters.get("end_patterns", [])
+        
+        print(f"   Удаление в начале текста: {len(start_patterns)} шаблонов")
+        for pattern in start_patterns:
+            print(f"     - {pattern}")
+        
+        print(f"   Удаление в конце текста: {len(end_patterns)} шаблонов")
+        for pattern in end_patterns:
+            print(f"     - {pattern}")
+        
         print("\n📰 ФИЛЬТРЫ ПО ИСТОЧНИКАМ:")
         source_filters = filters.get("source_specific_filters", {})
         
@@ -1111,9 +1290,16 @@ class NewsApp:
         else:
             for source_name, source_config in source_filters.items():
                 source_stop_words = source_config.get("stop_words", [])
-                print(f"   {source_name}: {len(source_stop_words)} стоп-слов")
+                source_start = source_config.get("start_patterns", [])
+                source_end = source_config.get("end_patterns", [])
+                print(f"   {source_name}: {len(source_stop_words)} стоп-слов, "
+                      f"{len(source_start)} шаблонов начала, {len(source_end)} шаблонов конца")
                 for word in source_stop_words:
                     print(f"     - {word}")
+                for pattern in source_start:
+                    print(f"     - [начало] {pattern}")
+                for pattern in source_end:
+                    print(f"     - [конец] {pattern}")
         
         self.wait_for_enter()
     
@@ -1333,6 +1519,7 @@ class NewsApp:
         self.print_header()
         print("--- СИСТЕМНАЯ ИНФОРМАЦИЯ ---")
         
+        print(f"🔖 Версия приложения: {APP_VERSION}")
         print(f"📁 Текущая папка: {get_base_path()}")
         print(f"🐍 Версия Python: {sys.version.split()[0]}")
         print(f"📦 Режим: {'EXE' if is_frozen() else 'Python Script'}")
