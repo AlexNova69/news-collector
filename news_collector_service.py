@@ -541,7 +541,7 @@ class NewsExporter:
         try:
             # В автоматическом режиме перезаписываем файл
             mode = 'w'
-            with open(filename, mode, encoding='utf-8') as f:
+            with open(filename, mode, encoding='utf-16') as f:
                 for news in news_items:
                     f.write(news['text'] + '\n')
             
