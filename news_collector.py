@@ -1628,6 +1628,13 @@ class NewsApp:
 
 def main():
     """Основная функция запуска приложения"""
+    # UTF-8 вывод: без консоли Windows (пайп/файл) cp1251 падает на эмодзи
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding='utf-8', errors='replace')
+        except Exception:
+            pass
+    
     print("🚀 Загрузка News Collector System...")
     print("💡 Самодостаточное Windows приложение...")
     print("🛠️  Система внешних фильтров...")
