@@ -17,7 +17,7 @@ import tkinter as tk
 from tkinter import filedialog
 
 # Версия приложения
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.2.0"
 
 # Определяем, запущены ли мы как EXE
 def is_frozen():
@@ -379,7 +379,8 @@ class NewsCollector:
         default_structure = {
             "sources": {},
             "settings": {
-                "auto_save_directory": None  # Папка для автоматического сохранения
+                "auto_save_directory": None,  # Папка для автоматического сохранения
+                "auto_save_filename": None    # Имя файла для автосохранения (None = news_call.txt)
             }
         }
         
@@ -390,6 +391,8 @@ class NewsCollector:
             # Объединяем с дефолтной структурой для обратной совместимости
             if "settings" not in loaded_data:
                 loaded_data["settings"] = default_structure["settings"]
+            loaded_data["settings"].setdefault("auto_save_directory", None)
+            loaded_data["settings"].setdefault("auto_save_filename", None)
             
             # Сохраняем обновленную структуру
             self.save_sources(loaded_data)
@@ -417,15 +420,19 @@ class NewsCollector:
             print(f"❌ Ошибка сохранения конфигурации: {e}")
     
     def set_auto_save_directory(self, directory):
-        """Установка папки для автоматического сохранения"""
-        if directory and os.path.exists(directory):
+        """Установка папки для автоматического сохранения (None = папка программы)"""
+        if directory is None:
+            self.sources["settings"]["auto_save_directory"] = None
+            self.save_sources()
+            print("✅ Папка для автосохранения сброшена на папку программы")
+            return True
+        if os.path.isdir(directory):
             self.sources["settings"]["auto_save_directory"] = directory
             self.save_sources()
-            print(f"✅ Папка для автоматического сохранения установлена: {directory}")
+            print(f"✅ Папка для автосохранения установлена: {directory}")
             return True
-        else:
-            print("❌ Указанная папка не существует!")
-            return False
+        print("❌ Указанная папка не существует!")
+        return False
     
     def get_auto_save_directory(self):
         """Получение папки для автоматического сохранения"""
@@ -433,6 +440,26 @@ class NewsCollector:
         if auto_dir and os.path.exists(auto_dir):
             return auto_dir
         return get_base_path()  # По умолчанию - папка программы
+    
+    def set_auto_save_filename(self, filename):
+        """Установка имени файла для автосохранения (None/пусто = news_call.txt)"""
+        filename = (filename or "").strip()
+        if not filename:
+            self.sources["settings"]["auto_save_filename"] = None
+            self.save_sources()
+            print("✅ Имя файла сброшено: используется news_call.txt")
+            return True
+        if os.path.basename(filename) != filename or filename in (".", ".."):
+            print("❌ Имя файла не должно содержать путь!")
+            return False
+        self.sources["settings"]["auto_save_filename"] = filename
+        self.save_sources()
+        print(f"✅ Имя файла для автосохранения установлено: {filename}")
+        return True
+    
+    def get_auto_save_filename(self):
+        """Получение имени файла для автосохранения (None = news_call.txt)"""
+        return self.sources["settings"].get("auto_save_filename")
     
     def add_source(self, name, url, max_news=5):
         """Добавление нового источника новостей"""
@@ -986,28 +1013,37 @@ class NewsApp:
             return None
     
     def setup_auto_save_directory(self):
-        """Настройка папки для автоматического сохранения"""
+        """Настройка папки и имени файла для автоматического сохранения"""
         self.print_header()
-        print("--- НАСТРОЙКА ПАПКИ ДЛЯ АВТОМАТИЧЕСКОГО СОХРАНЕНИЯ ---")
+        print("--- НАСТРОЙКА АВТОСОХРАНЕНИЯ: ПАПКА И ИМЯ ФАЙЛА ---")
         
         current_dir = self.collector.get_auto_save_directory()
-        print(f"📁 Текущая папка для автоматического сохранения: {current_dir}")
+        current_filename = self.collector.get_auto_save_filename()
+        print(f"📁 Текущая папка автосохранения: {current_dir}")
+        print(f"📄 Текущее имя файла: {current_filename or 'news_call.txt (по умолчанию)'}")
         
         print("\nВыберите действие:")
-        print("1. 📁 Выбрать другую папку")
-        print("2. 🔄 Сбросить на папку программы")
+        print("1. 📁 Выбрать папку автосохранения")
+        print("2. 🔄 Сбросить папку на папку программы")
+        print("3. 📝 Указать имя файла")
+        print("4. ♻️  Сбросить имя файла (news_call.txt)")
         print("0. ↩️  Назад")
         
-        choice = input("Выберите вариант (0-2): ").strip()
+        choice = input("Выберите вариант (0-4): ").strip()
         
         if choice == "1":
             directory = self.choose_directory()
             if directory:
-                if self.collector.set_auto_save_directory(directory):
-                    print(f"✅ Папка для автоматического сохранения установлена: {directory}")
+                self.collector.set_auto_save_directory(directory)
         elif choice == "2":
-            if self.collector.set_auto_save_directory(None):
-                print("✅ Папка для автоматического сохранения сброшена на папку программы")
+            self.collector.set_auto_save_directory(None)
+        elif choice == "3":
+            current_filename = self.collector.get_auto_save_filename()
+            hint = f" [{current_filename}]" if current_filename else " [news_call.txt]"
+            filename = input(f"Введите имя файла{hint}: ").strip()
+            self.collector.set_auto_save_filename(filename)
+        elif choice == "4":
+            self.collector.set_auto_save_filename(None)
         elif choice == "0":
             return
         else:
@@ -1319,7 +1355,7 @@ class NewsApp:
         self.wait_for_enter()
     
     def collect_and_export(self):
-        """Сбор и экспорт новостей с выбором каталога"""
+        """Сбор и экспорт новостей по настройкам автосохранения (пункт 11)"""
         self.print_header()
         print("--- СБОР И ЭКСПОРТ НОВОСТЕЙ ---")
         
@@ -1335,34 +1371,12 @@ class NewsApp:
             self.wait_for_enter()
             return
         
-        print("\n💾 Настройка экспорта:")
-        print("1. Автоматическое имя файла (с timestamp)")
-        print("2. Указать имя файла вручную")
-        print("3. Использовать news_call.txt (для автоматического режима)")
+        # Папка и имя файла берутся из настроек автосохранения (пункт 11 меню)
+        directory = self.collector.get_auto_save_directory()
+        filename = self.collector.get_auto_save_filename() or "news_call.txt"
         
-        choice = input("Выберите вариант (1-3): ").strip()
-        
-        if choice == "1":
-            filename = None
-        elif choice == "2":
-            filename = input("Введите имя файла: ").strip()
-            if not filename:
-                filename = None
-        elif choice == "3":
-            filename = "news_call.txt"
-        else:
-            filename = None
-        
-        # Спрашиваем пользователя о выборе каталога
-        print("\n📁 Выбор папки для сохранения:")
-        print("1. Папка программы (по умолчанию)")
-        print("2. Выбрать другую папку")
-        
-        dir_choice = input("Выберите вариант (1-2): ").strip()
-        
-        directory = None
-        if dir_choice == "2":
-            directory = self.choose_directory()
+        print(f"\n📁 Папка автосохранения: {directory}")
+        print(f"📄 Имя файла: {filename}")
         
         result_file = self.exporter.export_to_txt(
             news, 
@@ -1442,7 +1456,8 @@ class NewsApp:
         try:
             news = self.collector.collect_news()
             if news:
-                filename = "news_call.txt"
+                # Имя файла из настроек автосохранения (пункт 11 меню)
+                filename = self.collector.get_auto_save_filename() or "news_call.txt"
                 # Используем папку для автоматического сохранения
                 auto_save_dir = self.collector.get_auto_save_directory()
                 result_file = self.exporter.export_to_txt(
@@ -1526,9 +1541,11 @@ class NewsApp:
         print(f"📰 Количество источников: {len(self.collector.sources['sources'])}")
         print(f"⏰ Планировщик: {'✅ Активен' if self.scheduler_running else '❌ Остановлен'}")
         
-        # Папка для автоматического сохранения
+        # Папка и имя файла для автоматического сохранения
         auto_save_dir = self.collector.get_auto_save_directory()
+        auto_save_filename = self.collector.get_auto_save_filename()
         print(f"📁 Папка автосохранения: {auto_save_dir}")
+        print(f"📄 Имя файла автосохранения: {auto_save_filename or 'news_call.txt (по умолчанию)'}")
         
         # Проверяем наличие файлов
         files_to_check = ["sources.json", "news_call.txt", "filters.json"]
@@ -1567,7 +1584,7 @@ class NewsApp:
             print("8. 🔄 Запустить фоновый планировщик")
             print("9. ⏹️  Остановить планировщик")
             print("10. 🚀 Быстрый старт (добавить примеры источников)")
-            print("11. 📁 Настроить папку автосохранения")
+            print("11. 📁 Настроить папку автосохранения и имя файла")
             print("12. ℹ️  Системная информация")
             print("0. 🚪 Выход")
             print("-" * 70)
