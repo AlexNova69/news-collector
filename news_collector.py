@@ -3,7 +3,8 @@ import json
 import schedule
 import time
 import threading
-from datetime import datetime
+import argparse
+from datetime import datetime, date, timedelta
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 import os
@@ -16,8 +17,19 @@ import webbrowser
 import tkinter as tk
 from tkinter import filedialog
 
+# Модули службы Windows (pywin32). Если их нет, программа работает
+# как обычное консольное приложение, сервисные команды сообщат об ошибке.
+try:
+    import servicemanager
+    import win32event
+    import win32service
+    import win32serviceutil
+    PYWIN32 = True
+except ImportError:
+    PYWIN32 = False
+
 # Версия приложения
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.3.0"
 
 # Определяем, запущены ли мы как EXE
 def is_frozen():
@@ -31,7 +43,7 @@ def get_base_path():
         return os.path.dirname(os.path.abspath(__file__))
 
 def get_resource_path(relative_path):
-    """Получает абсолютный путь к ресурсу, работает для dev и для PyInstaller"""
+    """Получение абсолютный путь к ресурсу, работает для dev и для PyInstaller"""
     try:
         # PyInstaller создает временную папку и хранит путь в _MEIPASS
         base_path = sys._MEIPASS
@@ -39,6 +51,80 @@ def get_resource_path(relative_path):
         base_path = get_base_path()
     
     return os.path.join(base_path, relative_path)
+
+# ------------------------- журнал (как в WeatherCollector) -------------------------
+# Формат «dd.mm.yyyy HH:MM:SS  сообщение», файл news_collector.log рядом
+# с программой. У службы нет консоли — журнал пишется в файл; записи
+# старше LOG_SETTINGS["days"] дней удаляются раз в сутки, при размере
+# больше 1 МБ файл переносится в news_collector.log.old.
+LOG_SETTINGS = {"file": True, "days": 3}
+_LOG_DAY = [None]
+_CONSOLE = None   # консоль до перенаправления (для debug-режима службы)
+
+# Период службы в минутах (ограничения как у пункта 7 меню: от 5 мин до суток)
+MIN_INTERVAL, MAX_INTERVAL = 5, 1440
+
+
+def log_path():
+    return os.path.join(get_base_path(), "news_collector.log")
+
+
+def _parse_log_date(line):
+    """Дата в начале строки журнала («dd.mm.yyyy  …») или None."""
+    try:
+        return datetime.strptime(line[:10], "%d.%m.%Y").date()
+    except ValueError:
+        return None
+
+
+def _purge_log(path, days):
+    """Перезаписывает журнал без записей старше days дней."""
+    try:
+        if not os.path.exists(path):
+            return
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()
+        cutoff = date.today() - timedelta(days=max(1, days))
+        kept = [ln for ln in lines
+                if _parse_log_date(ln) is None or _parse_log_date(ln) >= cutoff]
+        if len(kept) != len(lines):
+            tmp = path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.writelines(kept)
+            os.replace(tmp, path)
+    except Exception:
+        pass
+
+
+def log(msg):
+    """Журнал: консоль (если есть) + файл рядом с программой (для службы)."""
+    line = "%s  %s" % (datetime.now().strftime("%d.%m.%Y %H:%M:%S"), msg)
+    try:
+        out = _CONSOLE if _CONSOLE is not None else sys.stdout
+        if out is not None:
+            print(line, flush=True, file=out)
+    except Exception:
+        pass                      # у службы консоли нет
+    if not LOG_SETTINGS["file"]:
+        return
+    try:
+        p = log_path()
+        # раз в сутки (и при первом запуске) убираем записи старше log_days
+        today = date.today()
+        if _LOG_DAY[0] != today:
+            _LOG_DAY[0] = today
+            if LOG_SETTINGS["days"] > 0:
+                _purge_log(p, LOG_SETTINGS["days"])
+        if os.path.exists(p) and os.path.getsize(p) > 1000000:
+            try:
+                os.remove(p + ".old")
+            except OSError:
+                pass
+            os.replace(p, p + ".old")
+        with open(p, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    except Exception:
+        pass                      # каталог без права записи — остаётся консоль
 
 class FilterManager:
     """Менеджер фильтров для очистки новостей"""
@@ -460,6 +546,26 @@ class NewsCollector:
     def get_auto_save_filename(self):
         """Получение имени файла для автосохранения (None = news_call.txt)"""
         return self.sources["settings"].get("auto_save_filename")
+    
+    def set_service_interval(self, minutes):
+        """Установка периода службы в минутах"""
+        try:
+            minutes = int(minutes)
+        except (TypeError, ValueError):
+            return False
+        if not (MIN_INTERVAL <= minutes <= MAX_INTERVAL):
+            return False
+        self.sources["settings"]["service_interval_min"] = minutes
+        self.save_sources()
+        return True
+    
+    def get_service_interval(self):
+        """Получение периода службы в минутах (по умолчанию 30)"""
+        try:
+            value = int(self.sources["settings"].get("service_interval_min", 30))
+        except (TypeError, ValueError):
+            value = 30
+        return max(MIN_INTERVAL, min(MAX_INTERVAL, value))
     
     def add_source(self, name, url, max_news=5):
         """Добавление нового источника новостей"""
@@ -921,8 +1027,11 @@ class NewsExporter:
                     news_by_source[source] = []
                 news_by_source[source].append(news)
             
+            # Атомарная замена: пишем во временный файл и переименовываем,
+            # чтобы бегущая строка никогда не увидела полуфайл
+            tmp_path = filepath + ".tmp"
             # Записываем в файл с группировкой по источникам
-            with open(filepath, 'w', encoding='utf-16') as f:
+            with open(tmp_path, 'w', encoding='utf-16') as f:
                 # Проходим по источникам в порядке конфигурации
                 for source_name in sources_config.keys():
                     if source_name in news_by_source and news_by_source[source_name]:
@@ -933,6 +1042,7 @@ class NewsExporter:
                             f.write(news['text'] + '\n')
                         # Добавляем пустую строку между источниками
                         f.write('\n')
+            os.replace(tmp_path, filepath)
             
             # Статистика
             total_chars = sum(len(news['text']) for news in news_items)
@@ -951,6 +1061,10 @@ class NewsExporter:
             
             return filepath
         except Exception as e:
+            try:
+                os.remove(tmp_path)
+            except (OSError, NameError, UnboundLocalError):
+                pass
             print(f"❌ Ошибка при экспорте в файл: {e}")
             return None
 
@@ -1546,6 +1660,7 @@ class NewsApp:
         auto_save_filename = self.collector.get_auto_save_filename()
         print(f"📁 Папка автосохранения: {auto_save_dir}")
         print(f"📄 Имя файла автосохранения: {auto_save_filename or 'news_call.txt (по умолчанию)'}")
+        print(f"⏱️  Интервал службы: {self.collector.get_service_interval()} мин")
         
         # Проверяем наличие файлов
         files_to_check = ["sources.json", "news_call.txt", "filters.json"]
@@ -1626,6 +1741,146 @@ class NewsApp:
                 print("❌ Неверный выбор!")
                 self.wait_for_enter()
 
+# ------------------------- цикл службы (как в WeatherCollector) -------------------------
+
+def stoppable_sleep(seconds, stop_event=None):
+    """Ожидание; True — если поступил запрос остановки (служба/Ctrl+C)."""
+    if stop_event is not None:
+        return win32event.WaitForSingleObject(
+            stop_event, max(0, int(seconds * 1000))) == win32event.WAIT_OBJECT_0
+    try:
+        time.sleep(seconds)
+    except KeyboardInterrupt:
+        return True
+    return False
+
+
+def news_service_loop(stop_event=None, once=False, interval=None):
+    """Общий цикл сборщика (консоль --once и служба Windows).
+
+    Собирает новости из sources.json и записывает файл для бегущей
+    строки (UTF-16) в папку/файл автосохранения (пункт 11 меню),
+    затем ждёт следующий интервал. Журнал — news_collector.log."""
+    collector = NewsCollector()
+
+    # настройки журнала: settings.log_file (on/off) и settings.log_days
+    settings = collector.sources.get("settings", {})
+    log_file = settings.get("log_file", True)
+    if isinstance(log_file, str):
+        log_file = log_file.strip().lower() not in ("off", "0", "false", "no", "нет")
+    LOG_SETTINGS["file"] = bool(log_file)
+    try:
+        LOG_SETTINGS["days"] = int(settings.get("log_days", 3))
+    except (TypeError, ValueError):
+        LOG_SETTINGS["days"] = 3
+
+    # аргумент --interval сохраняется в sources.json (как в WeatherCollector)
+    if interval is not None:
+        if not collector.set_service_interval(interval):
+            log("ОШИБКА: интервал должен быть %d..%d минут" % (MIN_INTERVAL, MAX_INTERVAL))
+            return 2
+    period = collector.get_service_interval()
+
+    out_dir = collector.get_auto_save_directory()
+    out_name = collector.get_auto_save_filename() or "news_call.txt"
+    out_path = os.path.join(out_dir, out_name)
+
+    log("NewsCollector %s | источников: %d | период: %d мин | файл: %s"
+        % (APP_VERSION, len(collector.sources["sources"]), period, out_path))
+
+    exporter = NewsExporter()
+    while True:
+        try:
+            news = collector.collect_news()
+            if news:
+                result = exporter.export_to_txt(
+                    news, collector.sources["sources"], out_name,
+                    is_scheduled=True, directory=out_dir)
+                if result:
+                    log("обновлено: %d новостей -> %s" % (len(news), result))
+                else:
+                    log("ОШИБКА: не удалось записать файл %s" % out_path)
+            else:
+                log("новости не найдены (файл не изменён)")
+        except Exception as e:
+            log("ОШИБКА обновления (старый файл сохранён): %s" % e)
+        if once:
+            return 0
+        log("следующее обновление через %d мин…" % period)
+        if stoppable_sleep(period * 60, stop_event):
+            log("остановлено")
+            return 0
+
+
+# ------------------------- служба Windows (pywin32) -------------------------
+
+SERVICE_COMMANDS = {"install", "update", "remove", "start", "stop",
+                    "restart", "debug"}
+
+# опции HandleCommandLine, требующие значения
+_SVC_OPTS_WITH_VALUE = {"--password", "--username", "--startup",
+                        "--perfmonini", "--perfmondll", "--wait"}
+
+
+def _find_service_command(argv):
+    """Индекс аргумента-команды службы или None.
+
+    Первое «голое» слово, не являющееся значением опции, должно быть
+    сервисной командой — иначе считаем, что это обычный вызов argparse."""
+    i = 1
+    while i < len(argv):
+        a = argv[i]
+        if a.startswith("-"):
+            i += 2 if (a.split("=")[0] in _SVC_OPTS_WITH_VALUE
+                       and "=" not in a) else 1
+            continue
+        return i if a.lower() in SERVICE_COMMANDS else None
+    return None
+
+
+if PYWIN32:
+
+    class NewsCollectorWindowsService(win32serviceutil.ServiceFramework):
+        _svc_name_ = "NewsCollector"
+        _svc_display_name_ = "NewsCollector — сборщик новостей"
+        _svc_description_ = (
+            "Периодически собирает новости из источников sources.json и "
+            "записывает файл для бегущей строки (UTF-16, по умолчанию "
+            "news_call.txt) в папку автосохранения. Настройки — sources.json "
+            "рядом с news_collector.exe, журнал — news_collector.log там же. "
+            "Интервал: news_collector.exe --interval 15")
+
+        def __init__(self, args):
+            win32serviceutil.ServiceFramework.__init__(self, args)
+            self.stop_event = win32event.CreateEvent(None, 0, 0, None)
+
+        def SvcStop(self):
+            self.ReportServiceStatus(win32service.SERVICE_STOP_PENDING)
+            win32event.SetEvent(self.stop_event)
+
+        def SvcDoRun(self):
+            servicemanager.LogMsg(servicemanager.EVENTLOG_INFORMATION_TYPE,
+                                  servicemanager.PYS_SERVICE_STARTED,
+                                  (self._svc_name_, ""))
+            # У службы нет консоли — вывод коллектора уходит в никуда
+            # (UTF-8, чтобы эмодзи не роняли сбор), важное пишется в
+            # news_collector.log через log(); в debug-режиме log() продолжает
+            # печатать в консоль через сохранённую ссылку _CONSOLE
+            global _CONSOLE
+            _CONSOLE = sys.stdout
+            try:
+                devnull = open(os.devnull, "w", encoding="utf-8", errors="replace")
+                sys.stdout = devnull
+                sys.stderr = devnull
+            except Exception:
+                pass
+            try:
+                news_service_loop(stop_event=self.stop_event)
+            except Exception:
+                import traceback
+                servicemanager.LogErrorMsg(traceback.format_exc())
+
+
 def main():
     """Основная функция запуска приложения"""
     # UTF-8 вывод: без консоли Windows (пайп/файл) cp1251 падает на эмодзи
@@ -1634,6 +1889,29 @@ def main():
             stream.reconfigure(encoding='utf-8', errors='replace')
         except Exception:
             pass
+    
+    parser = argparse.ArgumentParser(
+        description="Система сбора новостей %s" % APP_VERSION,
+        epilog="Служба Windows (от администратора): install --startup auto, "
+               "start, stop, restart, remove, debug; либо install_service.bat")
+    parser.add_argument("--once", action="store_true",
+                        help="один сбор и экспорт без меню (по настройкам автосохранения)")
+    parser.add_argument("--interval", type=int, metavar="MIN",
+                        help="период службы в минутах, %d..%d (сохраняется в sources.json)"
+                             % (MIN_INTERVAL, MAX_INTERVAL))
+    args = parser.parse_args()
+    
+    if args.once:
+        return news_service_loop(once=True, interval=args.interval)
+    
+    if args.interval is not None:
+        collector = NewsCollector()
+        if collector.set_service_interval(args.interval):
+            print("✅ Интервал службы установлен: %d мин (sources.json)"
+                  % collector.get_service_interval())
+            return 0
+        print("❌ Интервал должен быть %d..%d минут" % (MIN_INTERVAL, MAX_INTERVAL))
+        return 2
     
     print("🚀 Загрузка News Collector System...")
     print("💡 Самодостаточное Windows приложение...")
@@ -1651,6 +1929,30 @@ def main():
             app.quick_start()
     
     app.main_menu()
+    return 0
 
 if __name__ == "__main__":
-    main()
+    _idx = _find_service_command(sys.argv)
+    if _idx is not None:
+        if not PYWIN32:
+            print("Сервисный режим недоступен: нет модулей pywin32.\n"
+                  "Установите их и пересоберите exe: python -m pip install pywin32")
+            sys.exit(2)
+        # pywin32 ждёт опции ДО команды — переставляем команду в конец,
+        # поэтому работают оба написания: «install --startup auto» и
+        # «--startup auto install»
+        _argv = (sys.argv[0:1] + sys.argv[1:_idx] + sys.argv[_idx + 1:] +
+                 [sys.argv[_idx]])
+        win32serviceutil.HandleCommandLine(NewsCollectorWindowsService, argv=_argv)
+        sys.exit(0)
+    if len(sys.argv) == 1 and PYWIN32:
+        # Без аргументов: если процесс запущен менеджером служб — работаем
+        # как служба; иначе (двойной клик, консоль) — обычное меню.
+        try:
+            servicemanager.Initialize()
+            servicemanager.PrepareToHostSingle(NewsCollectorWindowsService)
+            servicemanager.StartServiceCtrlDispatcher()
+        except Exception:
+            sys.exit(main())
+        sys.exit(0)
+    sys.exit(main())

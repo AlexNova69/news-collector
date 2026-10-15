@@ -1,33 +1,34 @@
 @echo off
-echo Установка службы News Collector Service...
+rem ============================================================
+rem  install_service.bat — установка NewsCollector как службы
+rem  Windows с АВТОЗАПУСКОМ после перезагрузки компьютера.
+rem  ЗАПУСКАТЬ ОТ ИМЕНИ АДМИНИСТРАТОРА (правый клик по файлу).
+rem ============================================================
+chcp 65001 >nul
+cd /d "%~dp0"
 
-:: Проверяем, запущен ли скрипт от администратора
 net session >nul 2>&1
-if %errorLevel% neq 0 (
-    echo Ошибка: Скрипт должен быть запущен от имени администратора
+if errorlevel 1 (
+    echo Требуются права администратора.
+    echo Щёлкните этот файл правой кнопкой и выберите
+    echo «Запуск от имени администратора».
     pause
     exit /b 1
 )
 
-:: Устанавливаем службу с помощью NSSM
-nssm install NewsCollectorService "%CD%\venv\Scripts\python.exe" "%CD%\news_collector_service.py"
-
-:: Настраиваем службу
-nssm set NewsCollectorService DisplayName "News Collector Service"
-nssm set NewsCollectorService Description "Служба автоматического сбора и обработки новостей"
-nssm set NewsCollectorService Start SERVICE_AUTO_START
-nssm set NewsCollectorService AppDirectory "%CD%"
-nssm set NewsCollectorService AppStdout "%CD%\logs\service.log"
-nssm set NewsCollectorService AppStderr "%CD%\logs\service_error.log"
-
-echo Служба установлена. Запуск службы...
-nssm start NewsCollectorService
+news_collector.exe install --startup auto || goto :err
+news_collector.exe start || goto :err
 
 echo.
-echo Служба успешно установлена и запущена!
-echo Управление службой:
-echo   - Остановка: nssm stop NewsCollectorService
-echo   - Запуск: nssm start NewsCollectorService
-echo   - Удаление: nssm remove NewsCollectorService confirm
+sc qc NewsCollector | findstr /C:"BINARY_PATH_NAME" /C:"START_TYPE" /C:"DISPLAY_NAME"
 echo.
+echo Служба NewsCollector установлена (автозапуск) и запущена.
+echo Настройки: sources.json, журнал: news_collector.log
+echo Управление: news_collector.exe stop ^| restart ^| remove
 pause
+exit /b 0
+
+:err
+echo ОШИБКА установки службы.
+pause
+exit /b 1

@@ -54,7 +54,7 @@ a = Analysis(
         ('filters.json', '.'),
         ('sources.json', '.')
     ],
-    hiddenimports=[],
+    hiddenimports=['win32timezone'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
