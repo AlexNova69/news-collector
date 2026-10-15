@@ -7,3 +7,5 @@ __pycache__/
 *.pyc
 news_ticker*.txt
 shot-track-buddy/
+news_collector.log
+news_collector.log.old
